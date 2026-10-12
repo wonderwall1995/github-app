@@ -1,14 +1,6 @@
 # To-do
-1. Worker 배포와 GitHub App Webhook URL 교체 (worker/README.md 1~6번: wrangler login, D1 생성, 시크릿 등록, 배포) [최우선, 사용자 작업]
-2. 노트북 .env를 EVENT_SOURCE=worker로 바꾸고 Worker 주소/토큰 입력 후 실제 이벤트 흐름 확인 [사용자 작업]
-3. Kubuntu 노트북 24/7 배포 (서비스 등록, 절전 방지. 공개 URL 터널과 포트 개방은 필요 없음)
-4. GitHub App 설정에서 받을 이벤트 구독 체크 (Issues, Pull request, Pull request review, Pull request review comment, Issue comment, Commit comment, Push, Workflow run. 그 외 원하는 것) [사용자 작업]
-5. 보안 허용 목록 (ALLOWED_REPOS, ALLOWED_ACTORS로 내 Repo/내 계정 이벤트만 Hermes로 전달) [구현 여부 확인 중]
-6. Hermes → App 완료 콜백 엔드포인트 구현 [Hermes가 결과를 직접 게시하면 불필요, 삭제 여부 확인 중]
-7. CI check-run 결과 및 coverage 리포트 수집 (교차 검증용)
-8. 큰 diff 대응 (파일별 분할/요약 폴백) [보류]
-9. 실패/재시도/타임아웃 처리 및 로깅 [후순위. 계속 실패하는 이벤트는 현재 7일 뒤 Worker에서 사라짐]
-10. mock Hermes로 end-to-end 테스트 [진짜 나중에]
+1. 노트북 계속 pull 해주기 [의미 확인 중: 노트북에서 git pull을 자동으로 반복할지, 다른 의미인지]
+2. 로그 숫자 60줄로 늘리기 (너무 짧음)
 
 # Hermes 담당 (이 레포 범위 밖일 수 있음)
 1. Claude Code 헤드리스 실행기 구현 (OAuth 구독 로그인, 읽기 전용 도구만 허용, 네트워크 차단)
@@ -24,6 +16,12 @@
 3. import webhook 서명 검증 (Hermes 콜백, Slack 이벤트 등 외부 → 서버 방향)
 4. Hermes 전용 규격 확인 후 HTTP sink 맞춤 (지금은 범용 JSON POST)
 5. Grafana 대시보드 (앱에 /metrics 추가, Prometheus 수집, 평가 점수는 DB 저장)
+6. GitHub App 설정에서 받을 이벤트 구독 체크 (Issues, Pull request, Pull request review, Pull request review comment, Issue comment, Commit comment, Push, Workflow run. 그 외 원하는 것) [사용자 작업]
+7. 보안 허용 목록 (ALLOWED_REPOS, ALLOWED_ACTORS로 내 Repo/내 계정 이벤트만 Hermes로 전달)
+8. CI check-run 결과 및 coverage 리포트 수집 (교차 검증용)
+9. 큰 diff 대응 (파일별 분할/요약 폴백)
+10. 실패/재시도/타임아웃 처리 및 로깅 (계속 실패하는 이벤트는 현재 7일 뒤 Worker에서 사라짐)
+11. mock Hermes로 end-to-end 테스트
 
 # Done
 1. GitHub App 생성 및 권한/이벤트 설정 (issue_comment, pull_request, contents/checks/pull_requests 권한)
@@ -38,3 +36,9 @@
 10. 이벤트 수집/알림 판정 구조 구현 (src/events: collectors/ 폴더에 이벤트별 수집 코드 8종 + generic 기본 수집, policy.ts 알림 규칙 표, 기본은 전부 알림, Bot 이벤트와 ping은 수집만)
 11. Cloudflare Worker 문지기 구현 (worker/: Hono, webhook 서명 검증, delivery 중복 제거, D1 보관, 노트북용 조회/삭제 API와 Bearer 토큰 인증, 2MB 제한, 7일 보관, 보관소는 EventStore 인터페이스로 분리해 Postgres 교체 가능, 로컬 D1로 e2e 확인)
 12. 노트북 앱이 Worker에서 이벤트를 20초마다 가져오는 구조 추가 (EVENT_SOURCE=webhook|worker, WorkerPoller: ack 후 삭제, 실패 시 재시도, 중복 방지, 연결 실패 시 간격 증가, 로컬 Worker와 e2e 확인)
+13. Cloudflare Worker 배포 완료 (github-app-gate, https://github-app-gate.ltwayne0.workers.dev, D1 생성과 표 적용, 비밀값 등록, preview_urls 끔, healthz 200 / 토큰 없는 /events 401 / 서명 없는 /webhook 401 확인)
+14. GitHub App의 Webhook URL을 Worker 주소(/webhook)로 교체
+15. 루트에서 쓰는 편의 명령 추가 (pnpm deploy:worker, worker:dev, db:migrate, db:migrate:local, svc:status/restart/deploy/logs)
+16. 설명 및 명령 문서 작성 (whatissink.md, whatishono.md, command-helper.md)
+17. 노트북 .env를 EVENT_SOURCE=worker로 전환하고 실제 이벤트 흐름 확인
+18. Kubuntu 노트북 24/7 배포 및 배포 테스트 확인 (서비스 등록, 절전 방지)
