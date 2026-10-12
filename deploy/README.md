@@ -2,7 +2,7 @@
 
 목표: 노트북이 항상 켜져 있는 동안 서버가 죽지 않고, 재부팅해도 알아서 올라오고, GitHub이 외부에서 webhook을 보낼 수 있다.
 
-구성: GitHub -> Cloudflare Tunnel (https) -> localhost:3000 -> github-app (systemd 서비스)
+구성: GitHub -> Cloudflare Tunnel (https) -> localhost:3200 -> github-app (systemd 서비스)
 
 ## 1. 준비
 
@@ -22,7 +22,7 @@ HOST는 `127.0.0.1`로 둔다. 외부 접근은 터널이 대신 받는다.
 
 ```bash
 ./deploy/install-service.sh
-curl http://127.0.0.1:3000/healthz     # {"status":"ok",...}
+curl http://127.0.0.1:3200/healthz     # {"status":"ok",...}
 journalctl -u github-app -f            # 로그
 ```
 
@@ -46,7 +46,7 @@ systemctl status sleep.target     # masked 이면 정상
 
 1. Cloudflare Zero Trust 대시보드 > Networks > Tunnels > Create a tunnel (Cloudflared)
 2. 대시보드가 알려주는 설치 명령을 노트북에서 실행한다. 이 명령이 `cloudflared`를 systemd 서비스로 등록해서 재부팅 후에도 유지된다.
-3. Public hostname 추가: 예) `hook.내도메인.com` -> Service `HTTP` `localhost:3000`
+3. Public hostname 추가: 예) `hook.내도메인.com` -> Service `HTTP` `localhost:3200`
 4. GitHub App 설정의 Webhook URL을 `https://hook.내도메인.com/webhook` 으로 바꾼다. Webhook secret은 `.env`의 `GITHUB_WEBHOOK_SECRET`과 같아야 한다.
 
 ## 5. 동작 확인
@@ -61,5 +61,5 @@ systemctl status sleep.target     # masked 이면 정상
 |---|---|
 | 서비스가 시작되지 않음 | `journalctl -u github-app -n 50` (`.env` 누락/키 경로 오류는 시작 시 에러 메시지로 나온다) |
 | GitHub Deliveries가 401 | `.env`의 `GITHUB_WEBHOOK_SECRET` 과 GitHub App의 Webhook secret 불일치 |
-| GitHub Deliveries가 타임아웃/502 | `systemctl status cloudflared`, `curl 127.0.0.1:3000/healthz` |
+| GitHub Deliveries가 타임아웃/502 | `systemctl status cloudflared`, `curl 127.0.0.1:3200/healthz` |
 | 놓친 이벤트 | GitHub App > Advanced > Recent Deliveries 에서 Redeliver |

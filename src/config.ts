@@ -15,7 +15,7 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return {
-    port: Number(env.PORT ?? 3000),
+    port: Number(env.PORT ?? 3200),
     host: env.HOST ?? "127.0.0.1",
     logLevel: env.LOG_LEVEL ?? "info",
     webhookSecret: required(env, "GITHUB_WEBHOOK_SECRET"),
