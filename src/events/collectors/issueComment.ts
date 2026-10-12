@@ -1,15 +1,19 @@
-import { num, obj, readAuthor, readInstallationId, readRepo, str } from "./payload.js";
-import type { CommentEvent } from "./types.js";
+import { num, obj, readActor, readAuthor, readInstallationId, readRepo, str } from "../payload.js";
+import type { CommentEvent } from "../types.js";
 
-/** pull_request_review_comment 이벤트. PR diff의 특정 줄에 다는 리뷰 코멘트. */
-export function normalizeReviewComment(payload: unknown): CommentEvent | undefined {
+/**
+ * issue_comment 이벤트. 이슈 코멘트와 PR 대화 코멘트가 모두 이 이벤트로 온다.
+ * issue.pull_request 필드가 있으면 PR 코멘트다.
+ */
+export function collectIssueComment(payload: unknown): CommentEvent | undefined {
   const p = obj(payload);
   if (!p) return undefined;
 
+  const issue = obj(p.issue);
   const comment = obj(p.comment);
   const action = str(p.action);
   const repo = readRepo(p);
-  const number = num(obj(p.pull_request)?.number);
+  const number = num(issue?.number);
   const commentId = num(comment?.id);
   const author = readAuthor(comment?.user);
   const body = str(comment?.body);
@@ -20,14 +24,16 @@ export function normalizeReviewComment(payload: unknown): CommentEvent | undefin
 
   return {
     kind: "comment",
-    target: "pull_request_review",
+    target: issue?.pull_request ? "pull_request" : "issue",
     action,
     repo,
     number,
+    commitSha: undefined,
     commentId,
     author,
     body,
     url,
+    actor: readActor(p),
     installationId: readInstallationId(p),
   };
 }

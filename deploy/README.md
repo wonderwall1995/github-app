@@ -52,7 +52,7 @@ systemctl status sleep.target     # masked 이면 정상
 ## 5. 동작 확인
 
 1. GitHub App 설정 > Advanced > Recent Deliveries 에서 ping이 `202` 인지 확인 (실패한 건 Redeliver 가능).
-2. 앱이 설치된 Repo에서 이슈나 PR에 코멘트를 달고 `journalctl -u github-app -f` 에서 "코멘트 이벤트 수신" 로그를 확인한다.
+2. 앱이 설치된 Repo에서 이슈나 PR에 코멘트를 달고 `journalctl -u github-app -f` 에서 "이벤트 수집" 로그를 확인한다.
 3. 재부팅 후 서비스가 올라오는지, 덮개를 닫아도 계속 응답하는지 확인한다.
 
 ## 문제 확인 순서
