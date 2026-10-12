@@ -1,0 +1,13 @@
+name = "github-app-gate"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+# 고정 주소(workers.dev)만 쓴다. 버전마다 생기는 미리보기 주소는 끈다 (공개 주소가 늘어나지 않게)
+workers_dev = true
+preview_urls = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "github-app-events"
+# wrangler d1 create 로 만든 뒤 출력되는 database_id를 여기에 붙여 넣는다 (worker/README.md 참고)
+database_id = "4537a26c-af49-4e67-938c-56476bc30dbe"
+migrations_dir = "migrations"

@@ -1,0 +1,23 @@
+{
+  "name": "github-app-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply github-app-events --local",
+    "db:migrate": "wrangler d1 migrations apply github-app-events --remote",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0",
+    "wrangler": "^4.0.0"
+  }
+}
