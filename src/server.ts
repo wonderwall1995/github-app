@@ -23,7 +23,10 @@ export function buildServer(
   const queue = new JobQueue((err) => app.log.error({ err }, "webhook job failed"));
 
   app.get("/healthz", async () => ({ status: "ok", queued: queue.size }));
-  registerWebhook(app, { secret: config.webhookSecret, queue, handlers });
+  // Worker에서 가져오는 방식(secret 없음)에서는 이 서버가 webhook을 직접 받지 않는다.
+  if (config.webhookSecret) {
+    registerWebhook(app, { secret: config.webhookSecret, queue, handlers });
+  }
 
   return { app, queue };
 }

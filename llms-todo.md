@@ -1,11 +1,14 @@
 # To-do
-1. Kubuntu 노트북 24/7 배포 완료 및 검증 (deploy/README.md 순서: 서비스 등록, 절전 방지, 공개 URL 터널, GitHub App webhook URL 등록) [최우선]
-2. GitHub App 설정에서 받을 이벤트 구독 체크 (Issues, Pull request, Pull request review, Pull request review comment, Issue comment, Commit comment, Push, Workflow run. 그 외 원하는 것) [사용자 작업]
-3. Hermes → App 완료 콜백 엔드포인트 구현 [Hermes가 결과를 직접 게시하면 불필요, 삭제 여부 확인 중]
-4. CI check-run 결과 및 coverage 리포트 수집 (교차 검증용)
-5. 큰 diff 대응 (파일별 분할/요약 폴백) [보류]
-6. 실패/재시도/타임아웃 처리 및 로깅 [후순위]
-7. mock Hermes로 end-to-end 테스트 [진짜 나중에]
+1. Worker 배포와 GitHub App Webhook URL 교체 (worker/README.md 1~6번: wrangler login, D1 생성, 시크릿 등록, 배포) [최우선, 사용자 작업]
+2. 노트북 .env를 EVENT_SOURCE=worker로 바꾸고 Worker 주소/토큰 입력 후 실제 이벤트 흐름 확인 [사용자 작업]
+3. Kubuntu 노트북 24/7 배포 (서비스 등록, 절전 방지. 공개 URL 터널과 포트 개방은 필요 없음)
+4. GitHub App 설정에서 받을 이벤트 구독 체크 (Issues, Pull request, Pull request review, Pull request review comment, Issue comment, Commit comment, Push, Workflow run. 그 외 원하는 것) [사용자 작업]
+5. 보안 허용 목록 (ALLOWED_REPOS, ALLOWED_ACTORS로 내 Repo/내 계정 이벤트만 Hermes로 전달) [구현 여부 확인 중]
+6. Hermes → App 완료 콜백 엔드포인트 구현 [Hermes가 결과를 직접 게시하면 불필요, 삭제 여부 확인 중]
+7. CI check-run 결과 및 coverage 리포트 수집 (교차 검증용)
+8. 큰 diff 대응 (파일별 분할/요약 폴백) [보류]
+9. 실패/재시도/타임아웃 처리 및 로깅 [후순위. 계속 실패하는 이벤트는 현재 7일 뒤 Worker에서 사라짐]
+10. mock Hermes로 end-to-end 테스트 [진짜 나중에]
 
 # Hermes 담당 (이 레포 범위 밖일 수 있음)
 1. Claude Code 헤드리스 실행기 구현 (OAuth 구독 로그인, 읽기 전용 도구만 허용, 네트워크 차단)
@@ -33,3 +36,5 @@
 8. 출력 sink 인터페이스 정의 및 라우터 구현 (src/sinks: Sink, SinkRouter, 부분 실패 시 Redeliver 가능)
 9. HTTP sink 구현 (src/sinks/http.ts: JSON POST, 선택적 HMAC 서명 헤더, 타임아웃, 로컬 수신기로 e2e 확인)
 10. 이벤트 수집/알림 판정 구조 구현 (src/events: collectors/ 폴더에 이벤트별 수집 코드 8종 + generic 기본 수집, policy.ts 알림 규칙 표, 기본은 전부 알림, Bot 이벤트와 ping은 수집만)
+11. Cloudflare Worker 문지기 구현 (worker/: Hono, webhook 서명 검증, delivery 중복 제거, D1 보관, 노트북용 조회/삭제 API와 Bearer 토큰 인증, 2MB 제한, 7일 보관, 보관소는 EventStore 인터페이스로 분리해 Postgres 교체 가능, 로컬 D1로 e2e 확인)
+12. 노트북 앱이 Worker에서 이벤트를 20초마다 가져오는 구조 추가 (EVENT_SOURCE=webhook|worker, WorkerPoller: ack 후 삭제, 실패 시 재시도, 중복 방지, 연결 실패 시 간격 증가, 로컬 Worker와 e2e 확인)

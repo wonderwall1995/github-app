@@ -14,7 +14,11 @@
     "start": "node --env-file=.env dist/index.js",
     "temp-server": "cloudflared tunnel --url http://localhost:3200 --protocol http2",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "deploy:worker": "pnpm -C worker run deploy",
+    "worker:dev": "pnpm -C worker run dev",
+    "db:migrate": "pnpm -C worker run db:migrate",
+    "db:migrate:local": "pnpm -C worker run db:migrate:local"
   },
   "keywords": [],
   "author": "",

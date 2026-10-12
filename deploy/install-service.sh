@@ -15,7 +15,7 @@ SERVICE=/etc/systemd/system/github-app.service
 [ -f .env ] || { echo ".env가 없다. .env.example을 복사해서 채운다."; exit 1; }
 command -v pnpm >/dev/null || { echo "pnpm을 찾을 수 없다. 'corepack enable'을 먼저 실행한다."; exit 1; }
 
-pnpm install --frozen-lockfile
+pnpm install --frozen-lockfile --filter github-app
 pnpm build
 [ -f dist/index.js ] || { echo "빌드 결과(dist/index.js)가 없다."; exit 1; }
 

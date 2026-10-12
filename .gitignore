@@ -4,3 +4,5 @@ dist/
 *.pem
 credentials/*
 !credentials/.gitkeep
+.dev.vars
+.wrangler/
