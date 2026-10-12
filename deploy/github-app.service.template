@@ -1,0 +1,20 @@
+[Unit]
+Description=GitHub App webhook server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@WORKDIR@
+# pnpm build로 만든 dist를 node로 직접 실행한다 (systemd는 PATH가 최소라 pnpm 위치에 의존하지 않기 위함)
+ExecStart=@NODE@ --env-file=.env dist/index.js
+Restart=always
+RestartSec=3
+# 비정상 종료가 짧은 시간에 반복돼도 systemd가 포기하지 않게 한다
+StartLimitIntervalSec=0
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
