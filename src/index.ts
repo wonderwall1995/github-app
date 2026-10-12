@@ -2,6 +2,9 @@ import { loadConfig } from "./config.js";
 import { loadPrivateKey } from "./github/auth.js";
 import { registerEventHandlers } from "./events/register.js";
 import { buildServer } from "./server.js";
+import { HttpSink } from "./sinks/http.js";
+import { SinkRouter } from "./sinks/router.js";
+import type { Sink } from "./sinks/types.js";
 import { handlers } from "./webhook/handlers.js";
 
 const config = loadConfig();
@@ -9,7 +12,13 @@ const config = loadConfig();
 loadPrivateKey(config.privateKeyPath);
 
 const { app, queue } = buildServer(config);
-registerEventHandlers(handlers, app.log);
+
+const sinks: Sink[] = [];
+if (config.httpSinkUrl) {
+  sinks.push(new HttpSink({ name: "http", url: config.httpSinkUrl, secret: config.httpSinkSecret }));
+}
+app.log.info({ sinks: sinks.map((s) => s.name) }, "활성화된 sink");
+registerEventHandlers(handlers, app.log, new SinkRouter(sinks, app.log));
 
 async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, "shutting down");

@@ -15,6 +15,14 @@ export function num(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
 }
 
+export function bool(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+export function arr(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
 export function readRepo(payload: Obj): RepoRef | undefined {
   const repo = obj(payload.repository);
   const fullName = str(repo?.full_name);
@@ -27,6 +35,11 @@ export function readAuthor(user: unknown): Author | undefined {
   const u = obj(user);
   const login = str(u?.login);
   return login ? { login, type: str(u?.type) ?? "User" } : undefined;
+}
+
+/** 이벤트를 일으킨 사람 */
+export function readActor(payload: Obj): Author | undefined {
+  return readAuthor(payload.sender);
 }
 
 export function readInstallationId(payload: Obj): number | undefined {

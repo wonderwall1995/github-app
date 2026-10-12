@@ -48,7 +48,8 @@ export function registerWebhook(app: FastifyInstance, opts: WebhookOptions): voi
       return reply.code(200).send({ ok: true, duplicate: true });
     }
 
-    const handler = handlers.get(name);
+    // 이름이 맞는 핸들러가 없으면 기본 핸들러("*")가 받는다.
+    const handler = handlers.get(name) ?? handlers.get("*");
     if (handler) {
       queue.enqueue(async () => {
         try {

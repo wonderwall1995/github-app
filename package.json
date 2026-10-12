@@ -12,6 +12,7 @@
     "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node --env-file=.env dist/index.js",
+    "temp-server": "cloudflared tunnel --url http://localhost:3200 --protocol http2",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
