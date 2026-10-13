@@ -5,7 +5,7 @@ import type { Sink, SinkMeta } from "./types.js";
 export interface HttpSinkOptions {
   name: string;
   url: string;
-  /** 있으면 바디의 HMAC-SHA256을 X-Signature-256 헤더로 붙인다. 받는 쪽이 검증할 수 있다. */
+  /** 있으면 바디의 HMAC-SHA256을 X-Hub-Signature-256 헤더로 붙인다. 받는 쪽이 검증할 수 있다. */
   secret?: string;
   timeoutMs?: number;
   fetch?: typeof fetch;
@@ -26,8 +26,11 @@ export class HttpSink implements Sink {
     const headers: Record<string, string> = {
       "content-type": "application/json",
       "x-github-delivery": meta.deliveryId,
+      // 받는 쪽이 본문을 읽지 않고 이벤트를 걸러낼 수 있다. 값은 GitHub 이벤트 이름이 아니라 앱 내부 종류(event.kind)다.
+      "x-github-event": event.kind,
     };
-    if (this.opts.secret) headers["x-signature-256"] = sign(this.opts.secret, body);
+    // Hermes는 이 헤더 이름과 "sha256=<hex>" 형식으로 서명을 검증한다.
+    if (this.opts.secret) headers["x-hub-signature-256"] = sign(this.opts.secret, body);
 
     const res = await this.fetchFn(this.opts.url, {
       method: "POST",

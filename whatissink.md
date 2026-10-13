@@ -36,7 +36,8 @@ GitHub 코멘트 작성
 
 `.env`의 `HTTP_SINK_URL`에 주소를 넣으면 서버가 모든 사용자 코멘트를 그 주소로 JSON으로 보낸다. 비워 두면 로그만 남긴다. 아직은 받을 Hermes가 없어서 비워 두어도 된다.
 
-- `HTTP_SINK_SECRET`을 넣으면 보내는 내용의 서명(HMAC)을 `X-Signature-256` 헤더에 붙인다. 받는 쪽이 진짜 우리가 보낸 것인지 확인할 수 있다.
+- `HTTP_SINK_SECRET`을 넣으면 보내는 내용의 서명(HMAC)을 `X-Hub-Signature-256` 헤더에 `sha256=<hex>` 형식으로 붙인다. GitHub webhook과 같은 방식이라서 받는 쪽(Hermes 등)이 같은 검증 코드를 쓸 수 있다. 받는 쪽은 이것으로 진짜 우리가 보낸 것인지 확인한다.
+- 헤더 `X-GitHub-Event`에는 이벤트 종류를 넣는다. 값은 GitHub 이벤트 이름이 아니라 앱 내부 종류(`event.kind`)이다. 받는 쪽이 본문을 읽지 않고 이벤트를 걸러낼 수 있다. 헤더 `X-GitHub-Delivery`에는 `deliveryId`를 넣는다.
 - 앱이 직접 쓴 Bot 코멘트는 배송하지 않는다. 앱이 코멘트를 쓰기 시작했을 때 무한 반복되는 것을 막기 위해서다.
 - 배송지 하나가 실패하면 그 이벤트를 "미처리"로 되돌린다. GitHub 설정의 Recent Deliveries에서 Redeliver를 누르면 다시 시도한다. 이미 성공한 배송지에도 다시 가므로, 받는 쪽은 `deliveryId`로 중복을 걸러야 한다.
 
