@@ -1,8 +1,10 @@
 # To-do
 1. 노트북 계속 pull 해주기 [의미 확인 중: 노트북에서 git pull을 자동으로 반복할지, 다른 의미인지]
 2. 로그 숫자 60줄로 늘리기 (너무 짧음)
+3. .env의 HTTP_SINK_URL 설정 [Hermes 웹훅 활성화 이후. 값은 현재 비어 있음(사용자 확인). Hermes 쪽 계획은 hermes-test-gate 레포의 llms-todo.md 참고]
 
 # Hermes 담당 (이 레포 범위 밖일 수 있음)
+(Hermes 쪽 작업의 상세 목록은 ~/.hermes/projects/hermes-test-gate/llms-todo.md 에서 관리한다)
 1. Claude Code 헤드리스 실행기 구현 (OAuth 구독 로그인, 읽기 전용 도구만 허용, 네트워크 차단)
 2. QA 커버리지 평가 프롬프트 및 JSON 출력 스키마 정의 (판정, 점수, 누락 항목)
 3. 프롬프트 인젝션 방어 (diff/체크리스트를 비신뢰 입력으로 처리, 출력 스키마 검증)
@@ -13,11 +15,11 @@
 # 나중에
 1. Slack Bot 토큰/설정 (개인 채널에 Bot 생성, .env 관리)
 2. Slack sink 구현 (어떤 메시지를 보낼지는 서버에서 결정하는 규칙 포함)
-3. import webhook 서명 검증 (Hermes 콜백, Slack 이벤트 등 외부 → 서버 방향)
-4. Hermes 전용 규격 확인 후 HTTP sink 맞춤 (지금은 범용 JSON POST)
+3. import webhook 서명 검증 (Hermes 콜백, Slack 이벤트 등 외부 → 서버 방향). Hermes 분석 결과를 받아 Bot 이름으로 PR 코멘트를 쓰는 인바운드 엔드포인트와 한 묶음으로 구현한다 (HMAC 서명 검증 필수, deliveryId로 중복 게시 방지, installation token 사용)
+4. 서명을 방식 B로 상향 (X-Webhook-Signature-V2 + X-Webhook-Timestamp, 재전송 공격 방어). 방식 A는 적용 완료. 범용 JSON POST는 유지하고 필터링은 Hermes가 한다
 5. Grafana 대시보드 (앱에 /metrics 추가, Prometheus 수집, 평가 점수는 DB 저장)
-6. GitHub App 설정에서 받을 이벤트 구독 체크 (Issues, Pull request, Pull request review, Pull request review comment, Issue comment, Commit comment, Push, Workflow run. 그 외 원하는 것) [사용자 작업]
-7. 보안 허용 목록 (ALLOWED_REPOS, ALLOWED_ACTORS로 내 Repo/내 계정 이벤트만 Hermes로 전달)
+6. GitHub App 설정에서 받을 이벤트 구독 체크 (Issues, Pull request, Pull request review, Pull request review comment, Commit comment, Push, Workflow run. 그 외 원하는 것) [사용자 작업. Issue comment 구독과 쓰기 권한은 확인 완료]
+7. 보안 허용 목록 (ALLOWED_REPOS, ALLOWED_ACTORS로 내 Repo/내 계정 이벤트만 Hermes로 전달). 선택 기능으로만 둔다. 범용성을 위해 기본은 전부 전달하고, 버릴지 판단하는 일은 Hermes가 한다
 8. CI check-run 결과 및 coverage 리포트 수집 (교차 검증용)
 9. 큰 diff 대응 (파일별 분할/요약 폴백)
 10. 실패/재시도/타임아웃 처리 및 로깅 (계속 실패하는 이벤트는 현재 7일 뒤 Worker에서 사라짐)
@@ -36,9 +38,15 @@
 10. 이벤트 수집/알림 판정 구조 구현 (src/events: collectors/ 폴더에 이벤트별 수집 코드 8종 + generic 기본 수집, policy.ts 알림 규칙 표, 기본은 전부 알림, Bot 이벤트와 ping은 수집만)
 11. Cloudflare Worker 문지기 구현 (worker/: Hono, webhook 서명 검증, delivery 중복 제거, D1 보관, 노트북용 조회/삭제 API와 Bearer 토큰 인증, 2MB 제한, 7일 보관, 보관소는 EventStore 인터페이스로 분리해 Postgres 교체 가능, 로컬 D1로 e2e 확인)
 12. 노트북 앱이 Worker에서 이벤트를 20초마다 가져오는 구조 추가 (EVENT_SOURCE=webhook|worker, WorkerPoller: ack 후 삭제, 실패 시 재시도, 중복 방지, 연결 실패 시 간격 증가, 로컬 Worker와 e2e 확인)
-13. Cloudflare Worker 배포 완료 (github-app-gate, https://github-app-gate.ltwayne0.workers.dev, D1 생성과 표 적용, 비밀값 등록, preview_urls 끔, healthz 200 / 토큰 없는 /events 401 / 서명 없는 /webhook 401 확인)
+13. Cloudflare Worker 배포 완료 (github-app-gate, https://github-app-gate.<서브도메인>.workers.dev, D1 생성과 표 적용, 비밀값 등록, preview_urls 끔, healthz 200 / 토큰 없는 /events 401 / 서명 없는 /webhook 401 확인)
 14. GitHub App의 Webhook URL을 Worker 주소(/webhook)로 교체
 15. 루트에서 쓰는 편의 명령 추가 (pnpm deploy:worker, worker:dev, db:migrate, db:migrate:local, svc:status/restart/deploy/logs)
 16. 설명 및 명령 문서 작성 (whatissink.md, whatishono.md, command-helper.md)
 17. 노트북 .env를 EVENT_SOURCE=worker로 전환하고 실제 이벤트 흐름 확인
 18. Kubuntu 노트북 24/7 배포 및 배포 테스트 확인 (서비스 등록, 절전 방지)
+19. Hermes 연동용 sink 헤더 수정 방식 A (src/sinks/http.ts: 서명 헤더를 x-hub-signature-256으로 변경, x-github-event 헤더 추가. 값은 GitHub 이벤트 이름이 아니라 event.kind. test/sinks.test.ts 수정, pnpm test 77건과 typecheck 통과, 커밋 안 함)
+20. pnpm build 실행, dist/에 새 헤더 반영 확인 (서비스 재시작은 미실행)
+21. 공개 대비 민감 정보 점검 (.env, .pem, credentials는 추적된 적 없음, 토큰 패턴 없음, 개인 정보 3건은 위 To-do 4번)
+22. GitHub App 설정 확인 (사용자: Issue comment 구독, Pull requests와 Issues 쓰기 권한, hermes-test-gate 레포 접근 모두 정상)
+23. 서비스 재시작 (사용자 실행, 2026-10-13 11:17 KST). 새 헤더 적용 상태로 동작 중
+24. 공개 대비 개인 정보 정리 (사용자 결정, 2026-10-13): Worker 주소는 command-helper.md와 llms-todo.md에서 <서브도메인> 형식으로 교체함. 커밋 작성자 이메일과 D1 database_id는 문제 없다고 판단해 그대로 둠. 이미 커밋된 옛 기록에는 주소가 남아 있음

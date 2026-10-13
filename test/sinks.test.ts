@@ -43,7 +43,8 @@ describe("HttpSink", () => {
     const headers = init.headers as Record<string, string>;
     expect(headers["content-type"]).toBe("application/json");
     expect(headers["x-github-delivery"]).toBe("d-1");
-    expect(headers["x-signature-256"]).toBeUndefined();
+    expect(headers["x-github-event"]).toBe(event.kind);
+    expect(headers["x-hub-signature-256"]).toBeUndefined();
   });
 
   it("secret이 있으면 바디 서명 헤더를 붙인다", async () => {
@@ -53,7 +54,8 @@ describe("HttpSink", () => {
 
     const [, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
     const headers = init.headers as Record<string, string>;
-    expect(headers["x-signature-256"]).toBe(sign("s3", init.body as string));
+    expect(headers["x-hub-signature-256"]).toBe(sign("s3", init.body as string));
+    expect(headers["x-signature-256"]).toBeUndefined();
   });
 
   it("2xx가 아니면 에러를 던진다", async () => {
