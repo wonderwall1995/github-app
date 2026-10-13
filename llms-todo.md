@@ -1,7 +1,8 @@
 # To-do
 1. 노트북 계속 pull 해주기 [의미 확인 중: 노트북에서 git pull을 자동으로 반복할지, 다른 의미인지]
 2. 로그 숫자 60줄로 늘리기 (너무 짧음)
-3. .env의 HTTP_SINK_URL 설정 [Hermes 웹훅 활성화 이후. 값은 현재 비어 있음(사용자 확인). Hermes 쪽 계획은 hermes-test-gate 레포의 llms-todo.md 참고]
+3. .env에 HERMES_API_SECRET 추가 후 pnpm build, pnpm svc:restart [사용자 작업. 값은 ~/.hermes/testgate.json 의 analysis.github_app_secret 과 같아야 함. 코드는 구현되어 있고 키가 없으면 API가 열리지 않음]
+3-1. .env의 HTTP_SINK_URL 설정 [Hermes 웹훅 활성화 이후. 값은 현재 비어 있음(사용자 확인). Hermes 쪽 계획은 hermes-test-gate 레포의 llms-todo.md 참고]
 
 # Hermes 담당 (이 레포 범위 밖일 수 있음)
 (Hermes 쪽 작업의 상세 목록은 ~/.hermes/projects/hermes-test-gate/llms-todo.md 에서 관리한다)
@@ -15,14 +16,14 @@
 # 나중에
 1. Slack Bot 토큰/설정 (개인 채널에 Bot 생성, .env 관리)
 2. Slack sink 구현 (어떤 메시지를 보낼지는 서버에서 결정하는 규칙 포함)
-3. import webhook 서명 검증 (Hermes 콜백, Slack 이벤트 등 외부 → 서버 방향). Hermes 분석 결과를 받아 Bot 이름으로 PR 코멘트를 쓰는 인바운드 엔드포인트와 한 묶음으로 구현한다 (HMAC 서명 검증 필수, deliveryId로 중복 게시 방지, installation token 사용)
-4. 서명을 방식 B로 상향 (X-Webhook-Signature-V2 + X-Webhook-Timestamp, 재전송 공격 방어). 방식 A는 적용 완료. 범용 JSON POST는 유지하고 필터링은 Hermes가 한다
+3. import webhook 서명 검증 중 Slack 이벤트 등 나머지 외부 → 서버 방향 [Hermes 방향은 구현 완료: Done 25번. 남은 것은 Slack 쪽]
+4. 나가는 sink 서명을 방식 B로 상향 (X-Webhook-Signature-V2 + X-Webhook-Timestamp, 재전송 공격 방어). 방식 A는 적용 완료. 범용 JSON POST는 유지하고 필터링은 Hermes가 한다 [들어오는 /api/* 는 이미 타임스탬프 방식(x-hermes-*)이라 재전송 방어가 있음]
 5. Grafana 대시보드 (앱에 /metrics 추가, Prometheus 수집, 평가 점수는 DB 저장)
 6. GitHub App 설정에서 받을 이벤트 구독 체크 (Issues, Pull request, Pull request review, Pull request review comment, Commit comment, Push, Workflow run. 그 외 원하는 것) [사용자 작업. Issue comment 구독과 쓰기 권한은 확인 완료]
 7. 보안 허용 목록 (ALLOWED_REPOS, ALLOWED_ACTORS로 내 Repo/내 계정 이벤트만 Hermes로 전달). 선택 기능으로만 둔다. 범용성을 위해 기본은 전부 전달하고, 버릴지 판단하는 일은 Hermes가 한다
 8. CI check-run 결과 및 coverage 리포트 수집 (교차 검증용)
-9. 큰 diff 대응 (파일별 분할/요약 폴백)
-10. 실패/재시도/타임아웃 처리 및 로깅 (계속 실패하는 이벤트는 현재 7일 뒤 Worker에서 사라짐)
+9. 큰 diff 대응 (파일별 분할/요약 폴백) [일부 구현: /api/pr 이 100만 자 초과 시 뒤쪽 파일을 diff_included=false 로 표시. 요약 폴백은 미구현]
+10. 실패/재시도/타임아웃 처리 및 로깅 (계속 실패하는 이벤트는 현재 7일 뒤 Worker에서 사라짐. /api/comment 의 deliveryId 중복 방지 기록은 메모리에만 있어 재시작하면 사라짐)
 11. mock Hermes로 end-to-end 테스트
 
 # Done
@@ -50,3 +51,4 @@
 22. GitHub App 설정 확인 (사용자: Issue comment 구독, Pull requests와 Issues 쓰기 권한, hermes-test-gate 레포 접근 모두 정상)
 23. 서비스 재시작 (사용자 실행, 2026-10-13 11:17 KST). 새 헤더 적용 상태로 동작 중
 24. 공개 대비 개인 정보 정리 (사용자 결정, 2026-10-13): Worker 주소는 command-helper.md와 llms-todo.md에서 <서브도메인> 형식으로 교체함. 커밋 작성자 이메일과 D1 database_id는 문제 없다고 판단해 그대로 둠. 이미 커밋된 옛 기록에는 주소가 남아 있음
+25. Hermes 연동 API 구현 (사용자 승인, 2026-10-13): POST /api/pr (PR 제목, 설명, 기준 브랜치 이름, 헤드 SHA, 변경 파일 목록, diff, 상한 초과 시 파일별 diff_included 표시, commit을 주면 그 PR에 속하는지 확인 후 커밋 하나의 diff), POST /api/comment (Bot 이름으로 PR 코멘트, deliveryId로 중복 게시 방지). 서명: x-hermes-timestamp + x-hermes-signature = HMAC(<timestamp>.<바디>), 재전송 창 300초. 새 환경 변수 HERMES_API_SECRET (없으면 API 미등록), API_ALLOWED_OWNERS (선택). 새 파일: src/github/client.ts, src/api/{auth,diff,routes}.ts, test/{api,githubClient}.test.ts. pnpm test 108건, typecheck 통과. 실제 GitHub 호출은 아직 하지 않음.

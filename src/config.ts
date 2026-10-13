@@ -18,6 +18,10 @@ export interface Config {
   /** 범용 HTTP sink. URL이 없으면 sink 없이 로그만 남긴다. */
   httpSinkUrl: string | undefined;
   httpSinkSecret: string | undefined;
+  /** Hermes가 부르는 API(/api/pr, /api/comment)의 서명 키. 없으면 API를 열지 않는다. */
+  hermesApiSecret: string | undefined;
+  /** 쉼표로 구분한 허용 레포 소유자. 비어 있으면 앱이 설치된 모든 레포를 허용한다. */
+  apiAllowedOwners: string[];
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -63,5 +67,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     privateKeyPath: required(env, "GITHUB_APP_PRIVATE_KEY_PATH"),
     httpSinkUrl: optional(env, "HTTP_SINK_URL"),
     httpSinkSecret: optional(env, "HTTP_SINK_SECRET"),
+    hermesApiSecret: optional(env, "HERMES_API_SECRET"),
+    apiAllowedOwners: (env.API_ALLOWED_OWNERS ?? "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
   };
 }

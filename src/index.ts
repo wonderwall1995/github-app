@@ -1,5 +1,6 @@
 import { loadConfig } from "./config.js";
-import { loadPrivateKey } from "./github/auth.js";
+import { InstallationTokenProvider, loadPrivateKey } from "./github/auth.js";
+import { GitHubClient } from "./github/client.js";
 import { registerEventHandlers } from "./events/register.js";
 import { buildServer } from "./server.js";
 import { HttpSink } from "./sinks/http.js";
@@ -10,15 +11,21 @@ import { handlers, resolveHandler } from "./webhook/handlers.js";
 
 const config = loadConfig();
 // 키 파일이 없거나 형식이 틀리면 서버를 띄우기 전에 바로 실패시킨다.
-loadPrivateKey(config.privateKeyPath);
+const privateKey = loadPrivateKey(config.privateKeyPath);
 
-const { app, queue } = buildServer(config);
+const github = new GitHubClient({
+  appId: config.appId,
+  privateKey,
+  tokens: new InstallationTokenProvider({ appId: config.appId, privateKey }),
+});
+const { app, queue } = buildServer(config, undefined, github);
 
 const sinks: Sink[] = [];
 if (config.httpSinkUrl) {
   sinks.push(new HttpSink({ name: "http", url: config.httpSinkUrl, secret: config.httpSinkSecret }));
 }
 app.log.info({ eventSource: config.eventSource, sinks: sinks.map((s) => s.name) }, "수신 방식과 활성화된 sink");
+app.log.info({ hermesApi: Boolean(config.hermesApiSecret) }, "Hermes API 사용 여부");
 registerEventHandlers(handlers, app.log, new SinkRouter(sinks, app.log));
 
 const poller = config.worker
