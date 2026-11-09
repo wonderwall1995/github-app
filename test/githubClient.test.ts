@@ -135,3 +135,29 @@ describe("GitHubClient", () => {
     await expect(client.createComment("o/r", 3, "x")).rejects.toMatchObject({ status: 403 });
   });
 });
+
+describe("workerReportUploader", () => {
+  it("난수 token으로 PUT 하고 그 주소를 돌려준다", async () => {
+    const { workerReportUploader } = await import("../src/api/reports.js");
+    const calls: { url: string; init: RequestInit }[] = [];
+    const fetchFn = (async (url: string, init: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ ok: true, expiresAt: 9 }), { status: 201 });
+    }) as unknown as typeof fetch;
+    const up = workerReportUploader({ url: "https://w.example", pullToken: "tok" }, fetchFn);
+    const result = await up.upload("<p>x</p>");
+    const token = calls[0]!.url.split("/reports/")[1]!;
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(result).toEqual({ url: `https://w.example/r/${token}`, expiresAt: 9 });
+    expect((calls[0]!.init.headers as Record<string, string>).authorization).toBe("Bearer tok");
+    expect(calls[0]!.init.method).toBe("PUT");
+    const second = await up.upload("<p>y</p>");
+    expect(second.url).not.toBe(result.url);
+  });
+
+  it("201이 아니면 오류", async () => {
+    const { workerReportUploader, ReportUploadError } = await import("../src/api/reports.js");
+    const fetchFn = (async () => new Response("no", { status: 401 })) as unknown as typeof fetch;
+    await expect(workerReportUploader({ url: "https://w", pullToken: "t" }, fetchFn).upload("x")).rejects.toBeInstanceOf(ReportUploadError);
+  });
+});

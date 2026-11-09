@@ -413,3 +413,58 @@ describe("POST /api/pr 단계식 가져오기", () => {
     expect(github.getPullDiff).toHaveBeenCalled();
   });
 });
+
+describe("POST /api/report", () => {
+  const payload = { repo: "o/r", pr: 3, deliveryId: "d-1", html: "<!doctype html><p>보고서</p>" };
+  const uploader = () => ({ upload: vi.fn(async () => ({ url: "https://w.example/r/TOKEN", expiresAt: 123 })) });
+  const withReports = (reports?: ReturnType<typeof uploader>) => {
+    const { app } = buildServer(
+      { logLevel: "silent", webhookSecret: undefined, hermesApiSecret: SECRET, apiAllowedOwners: [] },
+      undefined,
+      fakeGithub(),
+      reports,
+    );
+    return app;
+  };
+
+  it("올리고 주소를 돌려준다", async () => {
+    const reports = uploader();
+    const res = await call(withReports(reports), "/api/report", payload);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, url: "https://w.example/r/TOKEN", expiresAt: 123, duplicate: false });
+    expect(reports.upload).toHaveBeenCalledWith(payload.html);
+  });
+
+  it("같은 deliveryId는 한 번만 올린다", async () => {
+    const reports = uploader();
+    const app = withReports(reports);
+    await call(app, "/api/report", payload);
+    const again = await call(app, "/api/report", payload);
+    expect(again.json().duplicate).toBe(true);
+    expect(reports.upload).toHaveBeenCalledTimes(1);
+  });
+
+  it("보관소가 설정되지 않았으면 501", async () => {
+    const res = await call(withReports(undefined), "/api/report", payload);
+    expect(res.statusCode).toBe(501);
+  });
+
+  it("업로드가 실패하면 502이고 내부 오류는 알리지 않는다", async () => {
+    const reports = { upload: vi.fn(async () => { throw new Error("secret detail"); }) };
+    const res = await call(withReports(reports), "/api/report", payload);
+    expect(res.statusCode).toBe(502);
+    expect(res.body).not.toContain("secret detail");
+  });
+
+  it("입력 검증과 서명", async () => {
+    const reports = uploader();
+    const app = withReports(reports);
+    const bad = [{ ...payload, html: "" }, { ...payload, html: "  " }, { ...payload, html: 3 },
+      { ...payload, deliveryId: "bad id" }, { ...payload, repo: "nope" }, { ...payload, pr: 0 }];
+    for (const p of bad) expect((await call(app, "/api/report", p)).statusCode, JSON.stringify(p).slice(0, 50)).toBe(400);
+    // 1MB를 넘는 본문은 서버의 본문 크기 한도(413)나 입력 검증(400)에서 걸린다.
+    expect([400, 413]).toContain((await call(app, "/api/report", { ...payload, html: "a".repeat(1024 * 1024 + 1) })).statusCode);
+    expect((await call(app, "/api/report", payload, { secret: "wrong" })).statusCode).toBe(401);
+    expect(reports.upload).not.toHaveBeenCalled();
+  });
+});
