@@ -29,6 +29,30 @@ export interface FileInfo {
   deletions: number;
 }
 
+/** 파일 목록 응답에 들어 있는 파일별 diff(patch)까지 담은 정보. patch가 없으면 GitHub이 생략한 것이다. */
+export interface PatchedFile extends FileInfo {
+  patch?: string;
+  previousPath?: string;
+}
+
+interface RawFile {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch?: string;
+  previous_filename?: string;
+}
+
+const toPatched = (f: RawFile): PatchedFile => ({
+  path: f.filename,
+  status: f.status,
+  additions: f.additions,
+  deletions: f.deletions,
+  ...(typeof f.patch === "string" ? { patch: f.patch } : {}),
+  ...(f.previous_filename ? { previousPath: f.previous_filename } : {}),
+});
+
 interface ApiOptions {
   method?: string;
   accept?: string;
@@ -135,11 +159,17 @@ export class GitHubClient {
   }
 
   async getPullFiles(repo: string, pr: number): Promise<FileInfo[]> {
-    const files = await this.pages<{ filename: string; status: string; additions: number; deletions: number }>(
-      repo,
-      `/repos/${repo}/pulls/${pr}/files`,
-    );
-    return files.map((f) => ({ path: f.filename, status: f.status, additions: f.additions, deletions: f.deletions }));
+    return (await this.getPullFilesPatched(repo, pr)).map(({ path, status, additions, deletions }) => ({
+      path,
+      status,
+      additions,
+      deletions,
+    }));
+  }
+
+  /** 파일 목록과 파일별 patch를 한 번에 받는다. 전체 diff를 따로 받지 않아도 된다. */
+  async getPullFilesPatched(repo: string, pr: number): Promise<PatchedFile[]> {
+    return (await this.pages<RawFile>(repo, `/repos/${repo}/pulls/${pr}/files`)).map(toPatched);
   }
 
   getPullDiff(repo: string, pr: number): Promise<string> {
@@ -162,6 +192,11 @@ export class GitHubClient {
       additions: f.additions,
       deletions: f.deletions,
     }));
+  }
+
+  async getCommitFilesPatched(repo: string, sha: string): Promise<PatchedFile[]> {
+    const data = await this.json<{ files?: RawFile[] }>(repo, `/repos/${repo}/commits/${sha}`);
+    return (data.files ?? []).map(toPatched);
   }
 
   getCommitDiff(repo: string, sha: string): Promise<string> {

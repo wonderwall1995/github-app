@@ -74,6 +74,22 @@ describe("GitHubClient", () => {
     await expect(client.getPull("o/r", 3)).rejects.toBeInstanceOf(GitHubApiError);
   });
 
+  it("파일 목록의 patch와 이전 경로를 함께 읽는다", async () => {
+    const { client, calls } = make((url) => base(url) ?? json([
+      { filename: "a.py", status: "modified", additions: 1, deletions: 0, patch: "@@ x" },
+      { filename: "n.py", status: "renamed", additions: 0, deletions: 0, previous_filename: "o.py" },
+      { filename: "big.json", status: "added", additions: 9, deletions: 0 },
+    ]));
+    const files = await client.getPullFilesPatched("o/r", 3);
+    expect(files).toEqual([
+      { path: "a.py", status: "modified", additions: 1, deletions: 0, patch: "@@ x" },
+      { path: "n.py", status: "renamed", additions: 0, deletions: 0, previousPath: "o.py" },
+      { path: "big.json", status: "added", additions: 9, deletions: 0 },
+    ]);
+    expect(calls.some((c) => c.url.includes("/pulls/3/files"))).toBe(true);
+    expect(await client.getPullFiles("o/r", 3)).toHaveLength(3);
+  });
+
   it("코멘트를 게시하고 URL을 돌려준다", async () => {
     const { client, calls } = make((url) => base(url) ?? json({ html_url: "https://x/c", id: 77 }, 201));
     expect(await client.createComment("o/r", 3, "안녕")).toEqual({ url: "https://x/c", id: 77 });
