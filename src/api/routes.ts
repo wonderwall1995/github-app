@@ -1,8 +1,8 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { GitHubApiError } from "../github/auth.js";
-import type { GitHubClient } from "../github/client.js";
+import type { GitHubClient, PatchedFile } from "../github/client.js";
 import { verifyHermesRequest } from "./auth.js";
-import { limitDiff } from "./diff.js";
+import { buildManifest, limitDiff, selectBlocks } from "./diff.js";
 
 /** diff 본문 상한(문자 수). Hermes 쪽에서 한 번 더 줄인다. */
 export const MAX_DIFF_CHARS = 1_000_000;
@@ -11,6 +11,10 @@ const REPO_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const COMMIT_PATTERN = /^[0-9a-fA-F]{7,40}$/;
 const DELIVERY_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
 const DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
+/** 같은 PR의 목록 요청과 본문 요청이 GitHub을 두 번 부르지 않게 잠깐 보관한다. */
+const PATCH_CACHE_TTL_MS = 5 * 60 * 1000;
+const PATCH_CACHE_MAX = 20;
+const MAX_PATHS = 1000;
 
 export interface ApiOptions {
   secret: string;
@@ -42,6 +46,17 @@ export function registerApi(app: FastifyInstance, opts: ApiOptions): void {
   const maxDiff = opts.maxDiffChars ?? MAX_DIFF_CHARS;
   const posted = new Map<string, { url: string; id: number; at: number }>();
   const inflight = new Map<string, Promise<{ url: string; id: number }>>();
+  const patchCache = new Map<string, { files: PatchedFile[]; at: number }>();
+
+  const cachedFiles = async (key: string, load: () => Promise<PatchedFile[]>): Promise<PatchedFile[]> => {
+    for (const [k, v] of patchCache) if (now() - v.at > PATCH_CACHE_TTL_MS) patchCache.delete(k);
+    const hit = patchCache.get(key);
+    if (hit) return hit.files;
+    const files = await load();
+    patchCache.set(key, { files, at: now() });
+    while (patchCache.size > PATCH_CACHE_MAX) patchCache.delete(patchCache.keys().next().value as string);
+    return files;
+  };
 
   // webhook 라우트의 원본 바디 파서와 겹치지 않도록 별도 범위에서 등록한다.
   void app.register(async (scope) => {
@@ -105,8 +120,46 @@ export function registerApi(app: FastifyInstance, opts: ApiOptions): void {
         return fail(reply, 400, "invalid_input", "commit은 7~40자 16진수여야 한다");
       }
 
+      const paths = body.paths;
+      const wantManifest = body.manifest === true;
+      if (paths !== undefined && (!Array.isArray(paths) || paths.length > MAX_PATHS || paths.some((p) => typeof p !== "string"))) {
+        return fail(reply, 400, "invalid_input", `paths는 문자열 ${MAX_PATHS}개 이하의 배열이어야 한다`);
+      }
+      const pinned = body.head_sha;
+      if (pinned !== undefined && (typeof pinned !== "string" || !COMMIT_PATTERN.test(pinned))) {
+        return fail(reply, 400, "invalid_input", "head_sha는 7~40자 16진수여야 한다");
+      }
+
       try {
         const pull = await opts.github.getPull(repo, pr);
+        if (typeof pinned === "string" && !commit && !pull.headSha.toLowerCase().startsWith(pinned.toLowerCase())) {
+          return fail(reply, 409, "head_changed", "요청하는 동안 PR에 새 커밋이 올라왔다. 처음부터 다시 요청해야 한다");
+        }
+        if (wantManifest || paths !== undefined) {
+          // 단계식 가져오기: 목록(manifest)을 먼저 받고, 필요한 파일의 본문(paths)만 이어서 받는다.
+          let sha: string | null = null;
+          if (typeof commit === "string") {
+            const prefix = commit.toLowerCase();
+            sha = (await opts.github.getPullCommitShas(repo, pr)).find((s) => s.startsWith(prefix)) ?? null;
+            if (!sha) return fail(reply, 404, "commit_not_in_pr", "이 PR에 속한 커밋이 아니다");
+          }
+          const files = await cachedFiles(`${repo}#${pr}@${sha ?? pull.headSha}`, () =>
+            sha ? opts.github.getCommitFilesPatched(repo, sha) : opts.github.getPullFilesPatched(repo, pr),
+          );
+          const common = {
+            repo, pr, scope: sha ? "commit" : "pr", commit: sha, title: pull.title, body: pull.body, state: pull.state,
+            base_ref: pull.baseRef, head_ref: pull.headRef, head_sha: pull.headSha,
+          };
+          const toApi = (f: { path: string; status: string; additions: number; deletions: number; patchChars: number; omitted: string | null; diffIncluded?: boolean }) => ({
+            path: f.path, status: f.status, additions: f.additions, deletions: f.deletions,
+            patch_chars: f.patchChars, omitted: f.omitted, diff_included: f.diffIncluded ?? false,
+          });
+          if (paths === undefined) {
+            return { ...common, manifest: true, files: buildManifest(files).map(toApi), diff: "", truncated: false };
+          }
+          const picked = selectBlocks(files, paths as string[], maxDiff);
+          return { ...common, manifest: false, files: picked.files.map(toApi), diff: picked.diff, truncated: picked.truncated };
+        }
         let sha: string | null = null;
         let files;
         let diff: string;

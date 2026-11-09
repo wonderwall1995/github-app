@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { REPLAY_WINDOW_SEC } from "../src/api/auth.js";
-import { limitDiff, splitDiffByPath } from "../src/api/diff.js";
+import { blockFromPatch, buildManifest, limitDiff, selectBlocks, splitDiffByPath } from "../src/api/diff.js";
 import { GitHubApiError } from "../src/github/auth.js";
 import type { GitHubClient } from "../src/github/client.js";
 import { buildServer } from "../src/server.js";
@@ -17,12 +17,19 @@ const FILES = [
   { path: "a.py", status: "modified", additions: 1, deletions: 0 },
   { path: "b.py", status: "modified", additions: 1, deletions: 0 },
 ];
+const PATCHED = [
+  { ...FILES[0]!, patch: "@@ -1 +1,2 @@\n x\n+y" },
+  { ...FILES[1]!, patch: "@@ -1 +1,2 @@\n x\n+z" },
+  { path: "data/big.json", status: "added", additions: 99999, deletions: 0 },
+];
 const SHA = "abc1421511aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 function fakeGithub(overrides: Partial<Record<keyof GitHubClient, unknown>> = {}): GitHubClient {
   return {
     getPull: vi.fn(async () => ({ title: "T", body: "B", state: "open", baseRef: "main", headRef: "feat", headSha: "h".repeat(40) })),
     getPullFiles: vi.fn(async () => FILES),
+    getPullFilesPatched: vi.fn(async () => PATCHED),
+    getCommitFilesPatched: vi.fn(async () => [PATCHED[0]]),
     getPullDiff: vi.fn(async () => DIFF),
     getPullCommitShas: vi.fn(async () => [SHA, "d".repeat(40)]),
     getCommitFiles: vi.fn(async () => [FILES[0]]),
@@ -292,5 +299,117 @@ describe("POST /api/comment/update", () => {
     const res = await call(server(github), "/api/comment/update", payload, { secret: "wrong" });
     expect(res.statusCode).toBe(401);
     expect(github.updateComment).not.toHaveBeenCalled();
+  });
+});
+
+describe("diff 블록 만들기", () => {
+  it("patch에 헤더를 붙여 git diff와 같은 모양으로 만든다", () => {
+    const block = blockFromPatch({ path: "a.py", status: "modified", additions: 1, deletions: 0, patch: "@@ -1 +1,2 @@\n x\n+y" });
+    expect(block).toBe("diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ -1 +1,2 @@\n x\n+y\n");
+    expect(splitDiffByPath(block!).get("a.py")).toBe(block);
+  });
+
+  it("새 파일, 삭제 파일, 이름 변경", () => {
+    expect(blockFromPatch({ path: "n.py", status: "added", additions: 1, deletions: 0, patch: "@@ -0,0 +1 @@\n+a" }))
+      .toContain("--- /dev/null\n+++ b/n.py\n");
+    expect(blockFromPatch({ path: "d.py", status: "removed", additions: 0, deletions: 1, patch: "@@ -1 +0,0 @@\n-a" }))
+      .toContain("--- a/d.py\n+++ /dev/null\n");
+    const renamed = blockFromPatch({ path: "new.py", previousPath: "old.py", status: "renamed", additions: 1, deletions: 0, patch: "@@ -1 +1,2 @@\n x\n+y" })!;
+    expect(renamed).toContain("diff --git a/old.py b/new.py\nrename from old.py\nrename to new.py\n--- a/old.py\n+++ b/new.py\n");
+    expect(splitDiffByPath(renamed).get("new.py")).toBe(renamed);
+  });
+
+  it("patch가 없거나 비어 있으면 블록이 없다", () => {
+    expect(blockFromPatch({ path: "big.json", status: "added", additions: 9, deletions: 0 })).toBeUndefined();
+    expect(blockFromPatch({ path: "big.json", status: "added", additions: 9, deletions: 0, patch: "" })).toBeUndefined();
+  });
+
+  it("목록은 본문 없이 크기만 알려 주고 patch 없는 파일을 표시한다", () => {
+    const list = buildManifest(PATCHED);
+    expect(list.map((f) => [f.path, f.omitted])).toEqual([["a.py", null], ["b.py", null], ["data/big.json", "no_patch"]]);
+    expect(list[0]!.patchChars).toBe(blockFromPatch(PATCHED[0]!)!.length);
+    expect(list[2]!.patchChars).toBe(0);
+  });
+
+  it("요청한 파일만 담고, 상한을 넘는 블록 하나만 건너뛴다 (뒤의 작은 파일은 담는다)", () => {
+    const big = { path: "big.ts", status: "modified", additions: 1, deletions: 0, patch: "@@ -1 +1 @@\n+" + "x".repeat(500) };
+    const small = PATCHED[0]!;
+    const out = selectBlocks([small, big, PATCHED[1]!], ["a.py", "big.ts", "b.py", "zzz.py", "a.py"], 300);
+    expect(out.files.map((f) => [f.path, f.omitted, f.diffIncluded])).toEqual([
+      ["a.py", null, true], ["big.ts", "size_cap", false], ["b.py", null, true],
+    ]);
+    expect(out.diff).toBe(blockFromPatch(small)! + blockFromPatch(PATCHED[1]!)!);
+    expect(out.truncated).toBe(true);
+  });
+
+  it("GitHub이 patch를 주지 않은 파일은 no_patch", () => {
+    const out = selectBlocks(PATCHED, ["data/big.json"], 1000);
+    expect(out.files[0]).toMatchObject({ omitted: "no_patch", diffIncluded: false, patchChars: 0 });
+  });
+});
+
+describe("POST /api/pr 단계식 가져오기", () => {
+  it("manifest: 본문 없이 목록과 크기만 돌려준다", async () => {
+    const github = fakeGithub();
+    const res = await call(server(github), "/api/pr", { repo: "o/r", pr: 3, manifest: true });
+    const body = res.json();
+    expect(res.statusCode).toBe(200);
+    expect(body).toMatchObject({ manifest: true, diff: "", truncated: false, head_sha: "h".repeat(40), scope: "pr" });
+    expect(body.files.map((f: { path: string; omitted: string | null; diff_included: boolean }) => [f.path, f.omitted, f.diff_included]))
+      .toEqual([["a.py", null, false], ["b.py", null, false], ["data/big.json", "no_patch", false]]);
+    expect(body.files[0].patch_chars).toBeGreaterThan(0);
+    expect(github.getPullDiff).not.toHaveBeenCalled();
+  });
+
+  it("paths: 요청한 파일의 본문만 돌려준다", async () => {
+    const res = await call(server(), "/api/pr", { repo: "o/r", pr: 3, paths: ["b.py", "data/big.json"] });
+    const body = res.json();
+    expect(body.manifest).toBe(false);
+    expect(body.diff).toContain("diff --git a/b.py b/b.py");
+    expect(body.diff).not.toContain("a.py");
+    expect(body.files.map((f: { path: string; omitted: string | null }) => [f.path, f.omitted])).toEqual([["b.py", null], ["data/big.json", "no_patch"]]);
+    expect(body.truncated).toBe(true);
+  });
+
+  it("같은 PR의 목록과 본문 요청은 GitHub 파일 목록을 한 번만 받는다", async () => {
+    const github = fakeGithub();
+    const app = server(github);
+    await call(app, "/api/pr", { repo: "o/r", pr: 3, manifest: true });
+    await call(app, "/api/pr", { repo: "o/r", pr: 3, paths: ["a.py"] });
+    expect(github.getPullFilesPatched).toHaveBeenCalledTimes(1);
+  });
+
+  it("head_sha가 바뀌었으면 409", async () => {
+    const res = await call(server(), "/api/pr", { repo: "o/r", pr: 3, paths: ["a.py"], head_sha: "a".repeat(40) });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe("head_changed");
+  });
+
+  it("head_sha가 맞으면 통과 (앞부분만 줘도 된다)", async () => {
+    const head = "abcdef0123456789abcdef0123456789abcdef01";
+    const github = fakeGithub({ getPull: vi.fn(async () => ({ title: "T", body: "B", state: "open", baseRef: "main", headRef: "feat", headSha: head })) });
+    const res = await call(server(github), "/api/pr", { repo: "o/r", pr: 3, paths: ["a.py"], head_sha: head.slice(0, 7) });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("커밋 단위도 같은 방식으로 받는다", async () => {
+    const github = fakeGithub();
+    const res = await call(server(github), "/api/pr", { repo: "o/r", pr: 3, commit: SHA.slice(0, 7), manifest: true });
+    expect(res.json()).toMatchObject({ scope: "commit", commit: SHA });
+    expect(github.getCommitFilesPatched).toHaveBeenCalledWith("o/r", SHA);
+  });
+
+  it("입력 검증", async () => {
+    const app = server();
+    for (const p of [{ paths: "a.py" }, { paths: [1] }, { paths: Array(1001).fill("a") }, { head_sha: "zz" }, { head_sha: 5 }]) {
+      expect((await call(app, "/api/pr", { repo: "o/r", pr: 3, ...p })).statusCode, JSON.stringify(p).slice(0, 40)).toBe(400);
+    }
+  });
+
+  it("옵션이 없으면 예전 방식 그대로 동작한다", async () => {
+    const github = fakeGithub();
+    const res = await call(server(github), "/api/pr", { repo: "o/r", pr: 3 });
+    expect(res.json().manifest).toBeUndefined();
+    expect(github.getPullDiff).toHaveBeenCalled();
   });
 });
