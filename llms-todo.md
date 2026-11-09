@@ -17,6 +17,26 @@
 9. 큰 diff 대응 (파일별 분할/요약 폴백) [일부 구현: /api/pr 이 100만 자 초과 시 뒤쪽 파일을 diff_included=false 로 표시. 요약 폴백은 미구현]
 10. 실패/재시도/타임아웃 처리 및 로깅 (계속 실패하는 이벤트는 현재 7일 뒤 Worker에서 사라짐. /api/comment 의 deliveryId 중복 방지 기록은 메모리에만 있어 재시작하면 사라짐)
 
+# 다른 프로젝트 에이전트가 만든 변경 (맥락)
+이 레포의 일부 변경은 이 레포의 작업 세션이 아니라 hermes-test-gate 레포의 에이전트 세션이 만들었다.
+그 세션은 Hermes 쪽 요구를 맞추려고 이 레포를 수정했다. 이 레포의 세션은 그 대화를 보지 못했다.
+요구의 원문과 판단 근거는 ~/.hermes/projects/hermes-test-gate/llms-todo.md 에 있다.
+커밋 작성자는 모두 사용자 계정이다. 작성자만으로는 어느 세션이 만들었는지 구분할 수 없다.
+
+| 커밋 | 날짜 | 내용 | 만든 쪽 |
+|---|---|---|---|
+| 4ca4c2a | 2026-10-13 | sink 헤더를 Hermes 규격으로 변경 (x-hub-signature-256, x-github-event). 헤더 이름이 바뀌는 비호환 변경. 문서 정정 포함 | Hermes 쪽 세션 (문서 정정은 이 레포 세션) |
+| 863685e | 2026-10-13 | Hermes가 부르는 API 추가 (/api/pr, /api/comment), GitHub REST 클라이언트, 새 환경 변수 2개 | Hermes 쪽 세션 (whatissink.md 절은 이 레포 세션) |
+| 8a8524c | 2026-10-13 | llms-todo.md 정리 (Hermes 담당 완료 표시, Done 26~29번) | Hermes 쪽 세션 |
+| 8719fbf | 2026-11-09 | 이 앱이 쓴 코멘트를 수정하는 API (/api/comment/update), /api/comment 응답에 commentId 추가 | Hermes 쪽 세션 |
+
+코드가 달라진 점 요약:
+- 나가는 길 (sink): 서명 헤더는 x-hub-signature-256 이고 형식은 sha256=<hex> 이다. x-github-event 에는 GitHub 이벤트 이름이 아니라 앱 내부 종류(event.kind)가 들어간다.
+- 들어오는 길 (API): 서명 방식이 sink와 다르다. x-hermes-timestamp 와 x-hermes-signature 를 쓰고 300초 재전송 창이 있다. HERMES_API_SECRET 이 없으면 API 는 등록되지 않는다.
+- 쓰기 범위: 앱은 이제 PR 코멘트를 쓰고, 자기가 쓴 코멘트만 고친다. 다른 사람이나 다른 앱의 코멘트는 건드리지 않는다 (403).
+- 브랜치: 지금 작업 브랜치는 fix/comment_update 이고 원격에 아직 없다. main 에는 합쳐지지 않았다.
+- 반영 상태: 실행 중인 서비스는 2026-10-13 13:07 에 시작한 빌드이다. /api/comment/update 는 아직 서비스에 반영되지 않았다. pnpm build 후 pnpm svc:restart 가 필요하다.
+
 # Done
 1. GitHub App 생성 및 권한/이벤트 설정 (issue_comment, pull_request, contents/checks/pull_requests 권한)
 2. webhook 서버 스캐폴딩 (스택 확정, 즉시 200 응답 후 비동기 처리)

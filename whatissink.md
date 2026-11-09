@@ -48,7 +48,10 @@ sink는 "나가는" 길이다. Hermes가 분석을 끝내고 PR 정보를 가져
 | 주소 | 하는 일 |
 |---|---|
 | `POST /api/pr` | PR 제목, 설명, 기준/헤드 브랜치, 변경 파일 목록, diff를 돌려준다. `commit`을 주면 그 PR에 속한 커밋인지 확인한 뒤 그 커밋 하나의 diff만 준다. 읽기 전용이다. |
-| `POST /api/comment` | 앱(Bot) 이름으로 PR에 코멘트를 쓴다. |
+| `POST /api/comment` | 앱(Bot) 이름으로 PR에 코멘트를 쓴다. 응답에 `commentId`가 들어 있다. |
+| `POST /api/comment/update` | 앞서 쓴 코멘트(예: "분석 중")를 결과나 실패 안내로 고친다. `repo`, `pr`, `commentId`, `body`를 받는다. |
+
+- 코멘트 수정은 이 앱이 쓴 코멘트만 된다. 작성 앱이 이 앱이 아니거나 다른 PR의 코멘트면 `403`으로 거부한다. 같은 내용으로 여러 번 불러도 결과는 같다.
 
 - 서명은 나가는 길과 방식이 다르다. 헤더 `X-Hermes-Timestamp`(초 단위 시각)와 `X-Hermes-Signature`(`sha256=<hex>`)를 쓰고, 서명 대상은 `<시각>.<바디>`이다. 시각이 서버와 300초 넘게 차이 나면 거부해서 재전송 공격을 막는다.
 - 키는 `.env`의 `HERMES_API_SECRET`이다. `HTTP_SINK_SECRET`(나가는 요청)과 다른 값을 쓴다. 비워 두면 API 자체가 열리지 않는다.
