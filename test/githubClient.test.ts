@@ -75,11 +75,43 @@ describe("GitHubClient", () => {
   });
 
   it("코멘트를 게시하고 URL을 돌려준다", async () => {
-    const { client, calls } = make((url) => base(url) ?? json({ html_url: "https://x/c" }, 201));
-    expect(await client.createComment("o/r", 3, "안녕")).toEqual({ url: "https://x/c" });
+    const { client, calls } = make((url) => base(url) ?? json({ html_url: "https://x/c", id: 77 }, 201));
+    expect(await client.createComment("o/r", 3, "안녕")).toEqual({ url: "https://x/c", id: 77 });
     const call = calls.find((c) => c.url.endsWith("/issues/3/comments"))!;
     expect(call.init.method).toBe("POST");
     expect(JSON.parse(call.init.body as string)).toEqual({ body: "안녕" });
+  });
+
+  describe("updateComment", () => {
+    const own = { performed_via_github_app: { id: 1 }, issue_url: "https://api.github.com/repos/o/r/issues/3" };
+    it("이 앱이 쓴 코멘트를 읽어 확인한 뒤 수정한다", async () => {
+      const { client, calls } = make((url, init) => base(url)
+        ?? (init?.method === "PATCH" ? json({ html_url: "https://x/c", id: 77 }) : json(own)));
+      expect(await client.updateComment("o/r", 3, 77, "결과")).toEqual({ url: "https://x/c", id: 77 });
+      const methods = calls.filter((c) => c.url.endsWith("/issues/comments/77")).map((c) => c.init.method ?? "GET");
+      expect(methods).toEqual(["GET", "PATCH"]);
+      const patch = calls.find((c) => c.init.method === "PATCH")!;
+      expect(JSON.parse(patch.init.body as string)).toEqual({ body: "결과" });
+    });
+
+    it("다른 앱이나 사람이 쓴 코멘트는 수정하지 않는다", async () => {
+      for (const other of [{ ...own, performed_via_github_app: null }, { ...own, performed_via_github_app: { id: 999 } }, {}]) {
+        const { client, calls } = make((url) => base(url) ?? json(other));
+        await expect(client.updateComment("o/r", 3, 77, "x")).rejects.toMatchObject({ status: 403 });
+        expect(calls.some((c) => c.init.method === "PATCH")).toBe(false);
+      }
+    });
+
+    it("다른 PR의 코멘트는 수정하지 않는다", async () => {
+      const { client, calls } = make((url) => base(url) ?? json({ ...own, issue_url: "https://api.github.com/repos/o/r/issues/30" }));
+      await expect(client.updateComment("o/r", 3, 77, "x")).rejects.toMatchObject({ status: 403 });
+      expect(calls.some((c) => c.init.method === "PATCH")).toBe(false);
+    });
+
+    it("수정이 200이 아니면 오류", async () => {
+      const { client } = make((url, init) => base(url) ?? (init?.method === "PATCH" ? json({}, 422) : json(own)));
+      await expect(client.updateComment("o/r", 3, 77, "x")).rejects.toMatchObject({ status: 422 });
+    });
   });
 
   it("코멘트 게시가 201이 아니면 오류", async () => {

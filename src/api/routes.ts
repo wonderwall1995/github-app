@@ -40,8 +40,8 @@ function upstream(reply: FastifyReply, err: unknown) {
 export function registerApi(app: FastifyInstance, opts: ApiOptions): void {
   const now = opts.now ?? Date.now;
   const maxDiff = opts.maxDiffChars ?? MAX_DIFF_CHARS;
-  const posted = new Map<string, { url: string; at: number }>();
-  const inflight = new Map<string, Promise<{ url: string }>>();
+  const posted = new Map<string, { url: string; id: number; at: number }>();
+  const inflight = new Map<string, Promise<{ url: string; id: number }>>();
 
   // webhook 라우트의 원본 바디 파서와 겹치지 않도록 별도 범위에서 등록한다.
   void app.register(async (scope) => {
@@ -169,7 +169,7 @@ export function registerApi(app: FastifyInstance, opts: ApiOptions): void {
       for (const [id, entry] of posted) if (now() - entry.at > DEDUPE_TTL_MS) posted.delete(id);
       const key = `${repo}#${pr}:${deliveryId}`;
       const done = posted.get(key);
-      if (done) return { ok: true, url: done.url, duplicate: true };
+      if (done) return { ok: true, url: done.url, commentId: done.id, duplicate: true };
       try {
         let pending = inflight.get(key);
         if (!pending) {
@@ -177,10 +177,34 @@ export function registerApi(app: FastifyInstance, opts: ApiOptions): void {
           inflight.set(key, pending);
         }
         const result = await pending;
-        posted.set(key, { url: result.url, at: now() });
-        return { ok: true, url: result.url, duplicate: false };
+        posted.set(key, { url: result.url, id: result.id, at: now() });
+        return { ok: true, url: result.url, commentId: result.id, duplicate: false };
       } catch (err) {
         req.log.warn({ err, repo, pr }, "코멘트 게시 실패");
+        return upstream(reply, err);
+      }
+    });
+
+    // 먼저 게시한 "분석 중" 코멘트를 결과나 실패 안내로 고친다. 같은 내용으로 여러 번 불러도 결과는 같다.
+    scope.post("/api/comment/update", async (req, reply) => {
+      const body = (req.body ?? {}) as Body;
+      const repo = readRepo(body, reply);
+      if (!repo) return reply;
+      const pr = readPr(body, reply);
+      if (pr === undefined) return reply;
+      const commentId = body.commentId;
+      if (typeof commentId !== "number" || !Number.isSafeInteger(commentId) || commentId <= 0) {
+        return fail(reply, 400, "invalid_input", "commentId는 양의 정수여야 한다");
+      }
+      const text = body.body;
+      if (typeof text !== "string" || text.trim() === "" || text.length > MAX_COMMENT_CHARS) {
+        return fail(reply, 400, "invalid_input", `body는 1~${MAX_COMMENT_CHARS}자 문자열이어야 한다`);
+      }
+      try {
+        const result = await opts.github.updateComment(repo, pr, commentId, text);
+        return { ok: true, url: result.url, commentId: result.id };
+      } catch (err) {
+        req.log.warn({ err, repo, pr, commentId }, "코멘트 수정 실패");
         return upstream(reply, err);
       }
     });

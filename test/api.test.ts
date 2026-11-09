@@ -27,7 +27,8 @@ function fakeGithub(overrides: Partial<Record<keyof GitHubClient, unknown>> = {}
     getPullCommitShas: vi.fn(async () => [SHA, "d".repeat(40)]),
     getCommitFiles: vi.fn(async () => [FILES[0]]),
     getCommitDiff: vi.fn(async () => DIFF.split("diff --git a/b.py")[0]),
-    createComment: vi.fn(async () => ({ url: "https://github.com/o/r/pull/3#issuecomment-1" })),
+    createComment: vi.fn(async () => ({ url: "https://github.com/o/r/pull/3#issuecomment-1", id: 1 })),
+    updateComment: vi.fn(async () => ({ url: "https://github.com/o/r/pull/3#issuecomment-1", id: 1 })),
     ...overrides,
   } as unknown as GitHubClient;
 }
@@ -200,7 +201,7 @@ describe("POST /api/comment", () => {
   it("코멘트를 게시한다", async () => {
     const github = fakeGithub();
     const res = await call(server(github), "/api/comment", payload);
-    expect(res.json()).toEqual({ ok: true, url: "https://github.com/o/r/pull/3#issuecomment-1", duplicate: false });
+    expect(res.json()).toEqual({ ok: true, url: "https://github.com/o/r/pull/3#issuecomment-1", commentId: 1, duplicate: false });
     expect(github.createComment).toHaveBeenCalledWith("o/r", 3, "보고서");
   });
 
@@ -223,7 +224,7 @@ describe("POST /api/comment", () => {
   it("실패하면 기록하지 않아 다시 시도할 수 있다", async () => {
     const create = vi.fn()
       .mockRejectedValueOnce(new GitHubApiError(500, "x"))
-      .mockResolvedValueOnce({ url: "u" });
+      .mockResolvedValueOnce({ url: "u", id: 2 });
     const app = server(fakeGithub({ createComment: create }));
     expect((await call(app, "/api/comment", payload)).statusCode).toBe(502);
     expect((await call(app, "/api/comment", payload)).statusCode).toBe(200);
@@ -249,5 +250,47 @@ describe("POST /api/comment", () => {
 
   it("NOW 상수 사용 확인", () => {
     expect(NOW).toBeGreaterThan(0);
+  });
+});
+
+describe("POST /api/comment/update", () => {
+  const payload = { repo: "o/r", pr: 3, commentId: 1, body: "결과" };
+
+  it("코멘트를 수정하고 id를 돌려준다", async () => {
+    const github = fakeGithub();
+    const res = await call(server(github), "/api/comment/update", payload);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, url: "https://github.com/o/r/pull/3#issuecomment-1", commentId: 1 });
+    expect(github.updateComment).toHaveBeenCalledWith("o/r", 3, 1, "결과");
+  });
+
+  it("같은 요청을 다시 보내도 수정할 수 있다 (재시도 가능)", async () => {
+    const github = fakeGithub();
+    const app = server(github);
+    expect((await call(app, "/api/comment/update", payload)).statusCode).toBe(200);
+    expect((await call(app, "/api/comment/update", payload)).statusCode).toBe(200);
+    expect(github.updateComment).toHaveBeenCalledTimes(2);
+  });
+
+  it("이 앱이 쓴 코멘트가 아니면 403", async () => {
+    const github = fakeGithub({ updateComment: vi.fn(async () => { throw new GitHubApiError(403, "x"); }) });
+    expect((await call(server(github), "/api/comment/update", payload)).statusCode).toBe(403);
+  });
+
+  it("입력 검증", async () => {
+    const app = server();
+    const bad = [
+      { ...payload, commentId: undefined }, { ...payload, commentId: "1" }, { ...payload, commentId: 0 },
+      { ...payload, commentId: -5 }, { ...payload, commentId: 1.5 }, { ...payload, body: "" }, { ...payload, body: "a".repeat(60_001) },
+      { ...payload, pr: -1 }, { ...payload, repo: "nope" },
+    ];
+    for (const p of bad) expect((await call(app, "/api/comment/update", p)).statusCode, JSON.stringify(p).slice(0, 60)).toBe(400);
+  });
+
+  it("서명 없이는 수정하지 않는다", async () => {
+    const github = fakeGithub();
+    const res = await call(server(github), "/api/comment/update", payload, { secret: "wrong" });
+    expect(res.statusCode).toBe(401);
+    expect(github.updateComment).not.toHaveBeenCalled();
   });
 });

@@ -47,3 +47,4 @@
 27. HTTP_SINK_URL, HTTP_SINK_SECRET 설정 (사용자): Hermes 웹훅(127.0.0.1:8644/webhooks/github-app)으로 전달됨. 실제 GitHub PR 코멘트에서 Worker, 이 앱, Hermes, 분석, Bot 코멘트까지 종단 시험 통과 (이전 To-do 3, 3-1과 나중에 11번 mock Hermes 시험을 대체).
 28. Hermes 담당 6개 항목 완료 (hermes-test-gate): Claude Code 헤드리스 실행(도구 없음, 구독 로그인), 평가 프롬프트와 JSON 스키마, 프롬프트 인젝션 방어(구분자, 스키마 검증, 인용 확인), 평가 결과를 GitHub 코멘트로 게시(Slack은 아직), 코멘트 문법(`/qa [커밋ID] 서술`, `/qa 서술`, `/qa free: 서술`)과 파서, 커밋 단위·PR 전체 단위 diff 수집(이 앱의 /api/pr 사용).
 29. 재분석 루프 없음 확인 (2026-10-13 13:15): Bot이 쓴 코멘트의 이벤트는 수집만 하고 sink로 보내지 않음.
+30. 코멘트 수정 API (2026-11-09, fix/comment_update): POST /api/comment 응답에 commentId 추가, POST /api/comment/update 추가 (repo, pr, commentId, body). 이 앱이 쓴 코멘트(performed_via_github_app.id 가 앱 ID)이고 같은 PR 의 것일 때만 수정하고, 아니면 403. Hermes 의 "분석 중" 코멘트를 결과나 실패 안내로 고치는 데 쓴다. pnpm test 117건, typecheck 통과. 서비스 재시작(pnpm svc:deploy 또는 svc:restart)은 사용자가 해야 반영됨. Cloudflare Worker 는 변경 없음.

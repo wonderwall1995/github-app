@@ -35,7 +35,7 @@ interface ApiOptions {
   body?: unknown;
 }
 
-/** GitHub REST API를 installation 토큰으로 호출한다. 이 파일은 읽기와 코멘트 게시만 한다. */
+/** GitHub REST API를 installation 토큰으로 호출한다. 이 파일은 읽기와 코멘트 게시, 이 앱이 쓴 코멘트의 수정만 한다. */
 export class GitHubClient {
   private readonly installations = new Map<string, number>();
   private readonly fetchFn: typeof fetch;
@@ -168,10 +168,26 @@ export class GitHubClient {
     return this.text(repo, `/repos/${repo}/commits/${sha}`, "application/vnd.github.diff");
   }
 
-  async createComment(repo: string, pr: number, body: string): Promise<{ url: string }> {
+  async createComment(repo: string, pr: number, body: string): Promise<{ url: string; id: number }> {
     const res = await this.call(repo, `/repos/${repo}/issues/${pr}/comments`, { method: "POST", body: { body } });
     if (res.status !== 201) throw new GitHubApiError(res.status, `코멘트 게시 실패 (${res.status})`);
-    const data = (await res.json()) as { html_url: string };
-    return { url: data.html_url };
+    const data = (await res.json()) as { html_url: string; id: number };
+    return { url: data.html_url, id: data.id };
+  }
+
+  /**
+   * 이 앱이 쓴 코멘트만 수정한다. 다른 사람이나 다른 앱이 쓴 코멘트와 다른 PR의 코멘트는 403으로 거부한다.
+   * 수정 대상을 먼저 읽어 작성 앱(performed_via_github_app)과 PR 번호를 확인한다.
+   */
+  async updateComment(repo: string, pr: number, commentId: number, body: string): Promise<{ url: string; id: number }> {
+    const path = `/repos/${repo}/issues/comments/${commentId}`;
+    const current = await this.json<{ performed_via_github_app?: { id?: number } | null; issue_url?: string }>(repo, path);
+    const ownApp = String(current.performed_via_github_app?.id ?? "") === this.opts.appId;
+    const samePr = (current.issue_url ?? "").endsWith(`/issues/${pr}`);
+    if (!ownApp || !samePr) throw new GitHubApiError(403, "이 앱이 이 PR에 쓴 코멘트가 아니다");
+    const res = await this.call(repo, path, { method: "PATCH", body: { body } });
+    if (res.status !== 200) throw new GitHubApiError(res.status, `코멘트 수정 실패 (${res.status})`);
+    const data = (await res.json()) as { html_url: string; id: number };
+    return { url: data.html_url, id: data.id };
   }
 }
