@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { safeEqual, verifySignature } from "./signature.js";
+import { D1ReportStore, type ReportStore } from "./reports.js";
 import { D1EventStore, type EventStore } from "./store.js";
 
 export interface Env {
@@ -14,13 +15,23 @@ export interface Env {
 export const MAX_BODY_BYTES = 2 * 1024 * 1024;
 /** 노트북이 가져가지 않은 이벤트를 보관하는 기간 */
 export const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+/** HTML 보고서 하나의 최대 크기와 보관 기간 */
+export const MAX_REPORT_BYTES = 1024 * 1024;
+export const REPORT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** 주소에 쓰는 난수 token: 32바이트를 base64url로 쓴 43자 */
+const REPORT_TOKEN = /^[A-Za-z0-9_-]{43}$/;
 const MAX_PULL = 100;
 const DEFAULT_PULL = 20;
 
 type StoreFactory = (env: Env) => EventStore;
+type ReportStoreFactory = (env: Env) => ReportStore;
 
 /** 문지기: GitHub webhook을 받아 검증하고 보관하고, 노트북이 인증 후 가져가게 한다. */
-export function createApp(makeStore: StoreFactory = (env) => new D1EventStore(env.DB), now: () => number = Date.now) {
+export function createApp(
+  makeStore: StoreFactory = (env) => new D1EventStore(env.DB),
+  now: () => number = Date.now,
+  makeReports: ReportStoreFactory = (env) => new D1ReportStore(env.DB),
+) {
   const app = new Hono<{ Bindings: Env }>();
 
   app.get("/healthz", (c) => c.json({ status: "ok" }));
@@ -51,9 +62,48 @@ export function createApp(makeStore: StoreFactory = (env) => new D1EventStore(en
     return c.json({ ok: true, duplicate: !inserted }, inserted ? 202 : 200);
   });
 
-  // 아래 두 경로는 노트북만 쓴다. 토큰이 없거나 틀리면 거절한다.
+  // 보고서 내려받기. 로그인 없이 주소(난수 token)만으로 받는다. 만료되었거나 없으면 같은 404를 준다.
+  app.get("/r/:token", async (c) => {
+    const token = c.req.param("token");
+    if (!REPORT_TOKEN.test(token)) return c.json({ error: "not found" }, 404);
+    const store = makeReports(c.env);
+    const body = await store.get(token, now());
+    if (body === null) return c.json({ error: "not found" }, 404);
+    return new Response(body, {
+      status: 200,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        // 화면에 바로 띄우지 않고 파일로 받게 한다. 열더라도 스크립트와 외부 자원은 막는다.
+        "content-disposition": 'attachment; filename="testgate-report.html"',
+        "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "no-referrer",
+        "cache-control": "no-store",
+        "x-robots-tag": "noindex, nofollow",
+      },
+    });
+  });
+
+  // 아래 경로는 노트북만 쓴다. 토큰이 없거나 틀리면 거절한다.
   app.use("/events/*", requirePullToken);
   app.use("/events", requirePullToken);
+  app.use("/reports/*", requirePullToken);
+
+  app.put("/reports/:token", async (c) => {
+    const token = c.req.param("token");
+    if (!REPORT_TOKEN.test(token)) return c.json({ error: "invalid token" }, 400);
+    const declared = Number(c.req.header("content-length") ?? 0);
+    if (declared > MAX_REPORT_BYTES) return c.json({ error: "payload too large" }, 413);
+    const raw = await c.req.arrayBuffer();
+    if (raw.byteLength === 0) return c.json({ error: "empty body" }, 400);
+    if (raw.byteLength > MAX_REPORT_BYTES) return c.json({ error: "payload too large" }, 413);
+    const store = makeReports(c.env);
+    const at = now();
+    // 올릴 때마다 만료된 보고서를 지운다 (크론 없이 무료 플랜 안에서 정리).
+    await store.purgeExpired(at);
+    await store.put(token, new TextDecoder().decode(raw), at, at + REPORT_TTL_MS);
+    return c.json({ ok: true, expiresAt: at + REPORT_TTL_MS }, 201);
+  });
 
   app.get("/events", async (c) => {
     const requested = Number(c.req.query("limit") ?? DEFAULT_PULL);

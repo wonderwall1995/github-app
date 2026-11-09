@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createApp, MAX_BODY_BYTES, RETENTION_MS, type Env } from "../src/app.js";
+import { createApp, MAX_BODY_BYTES, MAX_REPORT_BYTES, REPORT_TTL_MS, RETENTION_MS, type Env } from "../src/app.js";
+import type { ReportStore } from "../src/reports.js";
 import { sign } from "../src/signature.js";
 import type { EventStore, NewEvent, StoredEvent } from "../src/store.js";
 
@@ -32,12 +33,32 @@ class MemoryStore implements EventStore {
   }
 }
 
+class MemoryReports implements ReportStore {
+  rows = new Map<string, { body: string; createdAt: number; expiresAt: number }>();
+  async put(token: string, body: string, createdAt: number, expiresAt: number) {
+    this.rows.set(token, { body, createdAt, expiresAt });
+  }
+  async get(token: string, now: number) {
+    const row = this.rows.get(token);
+    return row && row.expiresAt > now ? row.body : null;
+  }
+  async purgeExpired(now: number) {
+    let n = 0;
+    for (const [k, v] of this.rows) if (v.expiresAt <= now) { this.rows.delete(k); n++; }
+    return n;
+  }
+}
+
+let clock = NOW;
+
 function setup(env: Partial<Env> = {}) {
   const store = new MemoryStore();
-  const app = createApp(() => store, () => NOW);
+  const reports = new MemoryReports();
+  clock = NOW;
+  const app = createApp(() => store, () => clock, () => reports);
   const fullEnv = { GITHUB_WEBHOOK_SECRET: SECRET, PULL_TOKEN: TOKEN, ...env } as Env;
   const request = (path: string, init?: RequestInit) => app.request(path, init, fullEnv);
-  return { store, request };
+  return { store, reports, request };
 }
 
 async function postWebhook(
@@ -204,5 +225,67 @@ describe("GET /healthz", () => {
   it("인증 없이 응답한다", async () => {
     const { request } = setup();
     expect((await request("/healthz")).status).toBe(200);
+  });
+});
+
+describe("보고서 보관소", () => {
+  const TOKEN43 = "A".repeat(43);
+  const put = (request: ReturnType<typeof setup>["request"], token: string, body: string, headers: Record<string, string> = auth) =>
+    request(`/reports/${token}`, { method: "PUT", headers, body });
+
+  it("토큰으로 올리고 주소로 받는다 (다운로드 전용 헤더, CSP, 캐시 금지)", async () => {
+    const { request } = setup();
+    const res = await put(request, TOKEN43, "<!doctype html><p>보고서</p>");
+    expect(res.status).toBe(201);
+    expect((await res.json()) as { expiresAt: number }).toEqual({ ok: true, expiresAt: NOW + REPORT_TTL_MS });
+    const got = await request(`/r/${TOKEN43}`);
+    expect(got.status).toBe(200);
+    expect(await got.text()).toBe("<!doctype html><p>보고서</p>");
+    expect(got.headers.get("content-disposition")).toContain("attachment");
+    expect(got.headers.get("content-security-policy")).toBe("default-src 'none'; style-src 'unsafe-inline'");
+    expect(got.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(got.headers.get("cache-control")).toBe("no-store");
+    expect(got.headers.get("referrer-policy")).toBe("no-referrer");
+  });
+
+  it("올리려면 토큰이 필요하고 틀리면 401", async () => {
+    const { request, reports } = setup();
+    expect((await put(request, TOKEN43, "x", {})).status).toBe(401);
+    expect((await put(request, TOKEN43, "x", { authorization: "Bearer wrong" })).status).toBe(401);
+    expect(reports.rows.size).toBe(0);
+  });
+
+  it("받는 데는 로그인이 필요 없지만 모르는 주소와 잘못된 형식은 같은 404", async () => {
+    const { request } = setup();
+    for (const t of ["B".repeat(43), "short", "..%2Fevents", "A".repeat(44), "a b"]) {
+      expect((await request(`/r/${t}`)).status, t).toBe(404);
+    }
+  });
+
+  it("업로드 주소의 token 형식이 틀리면 400", async () => {
+    const { request } = setup();
+    expect((await put(request, "short", "x")).status).toBe(400);
+  });
+
+  it("빈 본문과 큰 본문은 거절", async () => {
+    const { request } = setup();
+    expect((await put(request, TOKEN43, "")).status).toBe(400);
+    expect((await put(request, TOKEN43, "a".repeat(MAX_REPORT_BYTES + 1))).status).toBe(413);
+  });
+
+  it("7일이 지나면 받을 수 없고, 다음 업로드 때 지워진다", async () => {
+    const { request, reports } = setup();
+    await put(request, TOKEN43, "old");
+    clock = NOW + REPORT_TTL_MS + 1;
+    expect((await request(`/r/${TOKEN43}`)).status).toBe(404);
+    expect(reports.rows.size).toBe(1);
+    await put(request, "B".repeat(43), "new");
+    expect(reports.rows.has(TOKEN43)).toBe(false);
+    expect(reports.rows.size).toBe(1);
+  });
+
+  it("다운로드 경로는 이벤트 가져오기 토큰과 별개로 인증 없이 열려 있지만 이벤트는 여전히 막혀 있다", async () => {
+    const { request } = setup();
+    expect((await request("/events")).status).toBe(401);
   });
 });

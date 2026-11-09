@@ -3,6 +3,7 @@ import { GitHubApiError } from "../github/auth.js";
 import type { GitHubClient, PatchedFile } from "../github/client.js";
 import { verifyHermesRequest } from "./auth.js";
 import { buildManifest, limitDiff, selectBlocks } from "./diff.js";
+import { MAX_REPORT_BYTES, type ReportUploader } from "./reports.js";
 
 /** diff 본문 상한(문자 수). Hermes 쪽에서 한 번 더 줄인다. */
 export const MAX_DIFF_CHARS = 1_000_000;
@@ -23,6 +24,8 @@ export interface ApiOptions {
   allowedOwners?: string[];
   now?: () => number;
   maxDiffChars?: number;
+  /** 있으면 POST /api/report 를 연다. 없으면 501. */
+  reports?: ReportUploader;
 }
 
 type Body = Record<string, unknown>;
@@ -46,6 +49,7 @@ export function registerApi(app: FastifyInstance, opts: ApiOptions): void {
   const maxDiff = opts.maxDiffChars ?? MAX_DIFF_CHARS;
   const posted = new Map<string, { url: string; id: number; at: number }>();
   const inflight = new Map<string, Promise<{ url: string; id: number }>>();
+  const uploaded = new Map<string, { url: string; expiresAt: number; at: number }>();
   const patchCache = new Map<string, { files: PatchedFile[]; at: number }>();
 
   const cachedFiles = async (key: string, load: () => Promise<PatchedFile[]>): Promise<PatchedFile[]> => {
@@ -235,6 +239,36 @@ export function registerApi(app: FastifyInstance, opts: ApiOptions): void {
       } catch (err) {
         req.log.warn({ err, repo, pr }, "코멘트 게시 실패");
         return upstream(reply, err);
+      }
+    });
+
+    // HTML 보고서를 보관소에 올리고 내려받는 주소를 돌려준다. 같은 deliveryId는 한 번만 올린다.
+    scope.post("/api/report", async (req, reply) => {
+      const body = (req.body ?? {}) as Body;
+      const repo = readRepo(body, reply);
+      if (!repo) return reply;
+      const pr = readPr(body, reply);
+      if (pr === undefined) return reply;
+      const html = body.html;
+      if (typeof html !== "string" || html.trim() === "" || Buffer.byteLength(html, "utf8") > MAX_REPORT_BYTES) {
+        return fail(reply, 400, "invalid_input", "html은 1MB 이하의 비어 있지 않은 문자열이어야 한다");
+      }
+      const deliveryId = body.deliveryId;
+      if (typeof deliveryId !== "string" || !DELIVERY_PATTERN.test(deliveryId)) {
+        return fail(reply, 400, "invalid_input", "deliveryId 형식이 올바르지 않다");
+      }
+      if (!opts.reports) return fail(reply, 501, "not_configured", "보고서 보관소가 설정되어 있지 않다");
+      for (const [id, entry] of uploaded) if (now() - entry.at > DEDUPE_TTL_MS) uploaded.delete(id);
+      const key = `${repo}#${pr}:${deliveryId}`;
+      const done = uploaded.get(key);
+      if (done) return { ok: true, url: done.url, expiresAt: done.expiresAt, duplicate: true };
+      try {
+        const result = await opts.reports.upload(html);
+        uploaded.set(key, { ...result, at: now() });
+        return { ok: true, url: result.url, expiresAt: result.expiresAt, duplicate: false };
+      } catch (err) {
+        req.log.warn({ err, repo, pr }, "보고서 업로드 실패");
+        return fail(reply, 502, "upload_failed", "보고서를 보관소에 올리지 못했다");
       }
     });
 
