@@ -34,11 +34,31 @@ GitHub 코멘트 작성
 
 ## 지금 실제로 동작하는 것
 
-`.env`의 `HTTP_SINK_URL`에 주소를 넣으면 서버가 모든 사용자 코멘트를 그 주소로 JSON으로 보낸다. 비워 두면 로그만 남긴다. 아직은 받을 Hermes가 없어서 비워 두어도 된다.
+`.env`의 `HTTP_SINK_URL`에 주소를 넣으면 서버가 모든 사용자 코멘트를 그 주소로 JSON으로 보낸다. 비워 두면 로그만 남긴다. 받는 쪽(Hermes)이 아직 없으면 비워 두어도 된다.
 
-- `HTTP_SINK_SECRET`을 넣으면 보내는 내용의 서명(HMAC)을 `X-Signature-256` 헤더에 붙인다. 받는 쪽이 진짜 우리가 보낸 것인지 확인할 수 있다.
+- `HTTP_SINK_SECRET`을 넣으면 보내는 내용의 서명(HMAC)을 `X-Hub-Signature-256` 헤더에 `sha256=<hex>` 형식으로 붙인다. GitHub webhook과 같은 방식이라서 받는 쪽(Hermes 등)이 같은 검증 코드를 쓸 수 있다. 받는 쪽은 이것으로 진짜 우리가 보낸 것인지 확인한다.
+- 헤더 `X-GitHub-Event`에는 이벤트 종류를 넣는다. 값은 GitHub 이벤트 이름이 아니라 앱 내부 종류(`event.kind`)이다. 받는 쪽이 본문을 읽지 않고 이벤트를 걸러낼 수 있다. 헤더 `X-GitHub-Delivery`에는 `deliveryId`를 넣는다.
 - 앱이 직접 쓴 Bot 코멘트는 배송하지 않는다. 앱이 코멘트를 쓰기 시작했을 때 무한 반복되는 것을 막기 위해서다.
 - 배송지 하나가 실패하면 그 이벤트를 "미처리"로 되돌린다. GitHub 설정의 Recent Deliveries에서 Redeliver를 누르면 다시 시도한다. 이미 성공한 배송지에도 다시 가므로, 받는 쪽은 `deliveryId`로 중복을 걸러야 한다.
+
+## 반대 방향: Hermes가 우리를 부르는 API
+
+sink는 "나가는" 길이다. Hermes가 분석을 끝내고 PR 정보를 가져오거나 결과를 올리려면 "들어오는" 길도 필요하다. 그래서 두 개의 API를 둔다.
+
+| 주소 | 하는 일 |
+|---|---|
+| `POST /api/pr` | PR 제목, 설명, 기준/헤드 브랜치, 변경 파일 목록, diff를 돌려준다. `commit`을 주면 그 PR에 속한 커밋인지 확인한 뒤 그 커밋 하나의 diff만 준다. 읽기 전용이다. |
+| `POST /api/comment` | 앱(Bot) 이름으로 PR에 코멘트를 쓴다. 응답에 `commentId`가 들어 있다. |
+| `POST /api/comment/update` | 앞서 쓴 코멘트(예: "분석 중")를 결과나 실패 안내로 고친다. `repo`, `pr`, `commentId`, `body`를 받는다. |
+
+- 코멘트 수정은 이 앱이 쓴 코멘트만 된다. 작성 앱이 이 앱이 아니거나 다른 PR의 코멘트면 `403`으로 거부한다. 같은 내용으로 여러 번 불러도 결과는 같다.
+
+- 서명은 나가는 길과 방식이 다르다. 헤더 `X-Hermes-Timestamp`(초 단위 시각)와 `X-Hermes-Signature`(`sha256=<hex>`)를 쓰고, 서명 대상은 `<시각>.<바디>`이다. 시각이 서버와 300초 넘게 차이 나면 거부해서 재전송 공격을 막는다.
+- 키는 `.env`의 `HERMES_API_SECRET`이다. `HTTP_SINK_SECRET`(나가는 요청)과 다른 값을 쓴다. 비워 두면 API 자체가 열리지 않는다.
+- `API_ALLOWED_OWNERS`(선택)로 허용할 레포 소유자를 제한한다. 비우면 앱이 설치된 모든 레포를 허용한다.
+- `/api/comment`는 `deliveryId`가 같으면 한 번만 게시한다. 이 기록은 서버 메모리에만 있어서, 서비스를 재시작하면 24시간 안의 같은 `deliveryId`도 다시 게시될 수 있다.
+- diff가 100만 자를 넘으면 뒤쪽 파일은 `diff_included: false`로 표시하고 diff 본문에서 뺀다.
+- 코드는 `src/api/`(서명, 라우트, diff 자르기)와 `src/github/client.ts`(GitHub REST 호출)에 있다.
 
 ## 용어가 어려울 때
 

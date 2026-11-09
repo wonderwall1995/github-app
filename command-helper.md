@@ -12,7 +12,7 @@
 7. pnpm dev <- 서버 실행 (데스크탑)
 8. pnpm test <- 테스트
 9. pnpm -C worker test <- Worker 테스트
-10. curl https://github-app-gate.ltwayne0.workers.dev/healthz <- Worker 살아있나 확인
+10. curl https://github-app-gate.<서브도메인>.workers.dev/healthz <- Worker 살아있나 확인
 11. pnpm -C worker exec wrangler tail <- Worker 실시간 로그
 12. systemctl status github-app <- 노트북 서비스 상태
 13. journalctl -u github-app -f <- 노트북 로그 보기
