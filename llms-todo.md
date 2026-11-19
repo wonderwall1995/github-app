@@ -3,7 +3,7 @@
 2. 로그 숫자 60줄로 늘리기 (너무 짧음) [아직 안 함. 어느 출력인지 확인이 필요하다. 후보: `pnpm svc:restart`가 보여 주는 상태 줄 수(`head -n 5`), `deploy/install-service.sh`의 `--lines=15`. `pnpm svc:logs`는 `journalctl -f`라 줄 수 제한이 없다]
 
 # Hermes 담당 (이 레포 범위 밖)
-(6개 항목 모두 hermes-test-gate 레포에서 완료했다. 상세는 ~/.hermes/projects/hermes-test-gate/llms-todo.md 와 아래 Done 28번)
+(6개 항목 모두 hermes-test-gate 레포에서 완료했다. 상세는 아래 Done 28번. 지금 Hermes 쪽 입구는 hermes-controller 레포이다)
 
 # 나중에
 1. Slack Bot 토큰/설정 (개인 채널에 Bot 생성, .env 관리)
@@ -20,7 +20,7 @@
 # 다른 프로젝트 에이전트가 만든 변경 (맥락)
 이 레포의 일부 변경은 이 레포의 작업 세션이 아니라 hermes-test-gate 레포의 에이전트 세션이 만들었다.
 그 세션은 Hermes 쪽 요구를 맞추려고 이 레포를 수정했다. 이 레포의 세션은 그 대화를 보지 못했다.
-요구의 원문과 판단 근거는 ~/.hermes/projects/hermes-test-gate/llms-todo.md 에 있다.
+요구의 원문과 판단 근거는 hermes-test-gate 레포의 옛 llms-todo.md에 있었다(2026-11-19 삭제, git 기록에 남음).
 커밋 작성자는 모두 사용자 계정이다. 작성자만으로는 어느 세션이 만들었는지 구분할 수 없다.
 
 | 커밋 | 날짜 | 내용 | 만든 쪽 |
